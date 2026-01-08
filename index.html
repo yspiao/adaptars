@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>ADAPTARS</title>
     <style>
         :root {
@@ -11,12 +11,13 @@
             --primary: #e5e5e5;
             --dim: #444444;
             --accent: #333333;
-            --snap-color: #00ff9d;
-            /* Warm Colors */
-            --warm-glow-1: #ffb700; /* Amber */
-            --warm-glow-2: #ff8c00; /* Dark Orange */
-            --warm-white: #fff5e0; 
+            
+            /* Visual Colors */
+            --snap-color: #888888; /* Changed from Green to Grey */
+            --slide-color: #002080; /* Darker Klein Blue */
+            --glow-color: #ffffff; 
         }
+        
         body {
             margin: 0;
             background-color: var(--bg);
@@ -26,8 +27,7 @@
             user-select: none;
             display: flex;
             flex-direction: column;
-            height: 100vh;
-            /* Prevent pull-to-refresh on mobile */
+            height: 100dvh; 
             overscroll-behavior: none;
         }
         
@@ -36,37 +36,38 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 20px; /* More padding for touch */
+            padding: 10px 20px;
             border-bottom: 1px solid var(--accent);
             z-index: 10;
             background: var(--bg);
-            height: 60px; /* Fixed height for consistency */
+            height: 60px;
             box-sizing: border-box;
+            flex-shrink: 0; 
         }
 
-        /* LOGO: WARM BREATHING EFFECT */
+        /* LOGO: WHITE BREATHING EFFECT */
         @keyframes breathe {
             0% { 
-                text-shadow: 0 0 5px rgba(255, 183, 0, 0.3), 0 0 10px rgba(255, 140, 0, 0.1); 
-                color: #ddd;
-                opacity: 0.8;
+                text-shadow: 0 0 5px rgba(255, 255, 255, 0.2); 
+                color: #888;
+                opacity: 0.7;
             }
             50% { 
-                text-shadow: 0 0 15px rgba(255, 183, 0, 0.6), 0 0 25px rgba(255, 140, 0, 0.4); 
-                color: var(--warm-white);
+                text-shadow: 0 0 15px rgba(255, 255, 255, 0.6), 0 0 25px rgba(255, 255, 255, 0.3); 
+                color: #fff;
                 opacity: 1;
             }
             100% { 
-                text-shadow: 0 0 5px rgba(255, 183, 0, 0.3), 0 0 10px rgba(255, 140, 0, 0.1); 
-                color: #ddd;
-                opacity: 0.8;
+                text-shadow: 0 0 5px rgba(255, 255, 255, 0.2); 
+                color: #888;
+                opacity: 0.7;
             }
         }
         .brand { 
             font-weight: bold; 
-            letter-spacing: 4px; 
-            font-size: 20px; 
-            animation: breathe 5s ease-in-out infinite; /* Slow breathing */
+            letter-spacing: 3px; 
+            font-size: 18px; 
+            animation: breathe 4s ease-in-out infinite;
         }
         
         /* CONTROLS */
@@ -77,27 +78,31 @@
             background: none;
             border: 1px solid var(--dim);
             color: var(--dim);
-            padding: 10px 25px; /* Larger hit area */
+            padding: 8px 20px;
             cursor: pointer;
             font-family: inherit;
-            font-size: 14px; /* Larger font */
+            font-size: 14px;
             letter-spacing: 1px;
             transition: all 0.2s;
             border-radius: 4px;
+            min-width: 60px;
         }
         button.active {
             border-color: var(--primary);
             color: var(--bg);
             background: var(--primary);
             font-weight: bold;
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
         
         #instrument-container {
             flex-grow: 1;
             position: relative;
             cursor: crosshair;
-            touch-action: none; /* Disable default touch actions */
+            touch-action: none;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
         }
         canvas {
             display: block;
@@ -105,12 +110,11 @@
             height: 100%;
         }
 
-        .overlay-info { display: none; }
-        
+        /* Central Big Display - GREYSCALE UPDATE */
         #ratio-display {
-            font-size: 80px;
+            font-size: 15vw; 
             font-weight: bold;
-            color: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.03); 
             position: absolute;
             top: 50%;
             left: 50%;
@@ -118,9 +122,11 @@
             pointer-events: none;
             z-index: 0;
             transition: color 0.1s;
+            white-space: nowrap;
         }
         #ratio-display.locked {
-            color: rgba(0, 255, 157, 0.1);
+            /* CHANGED: Green -> Neutral Grey */
+            color: rgba(180, 180, 180, 0.15); 
         }
         
         #start-overlay {
@@ -136,13 +142,12 @@
         .big-btn {
             border: 1px solid white;
             padding: 20px 40px;
-            font-size: 24px;
+            font-size: 20px;
             letter-spacing: 5px;
             color: white;
             transition: 0.3s;
         }
-        .big-btn:hover { background: white; color: black; box-shadow: 0 0 20px rgba(255,255,255,0.5); }
-        .history-text { display: none; }
+        .big-btn:hover { background: white; color: black; }
     </style>
 </head>
 <body>
@@ -158,7 +163,6 @@
                 <button id="btn-vector" class="active">I</button>
                 <button id="btn-slate">II</button>
             </div>
-            <div style="font-size: 10px; color: #666; display: none;">DSP: <span id="dsp-status">OFFLINE</span></div>
         </div>
     </header>
 
@@ -178,14 +182,12 @@
         let canvas, ctx;
         let width, height;
         
-        // Touch/Mouse State
-        // For visual cursor (Ratio tracking), we use the "primary" or last moved pointer
         let rawMouseX = 0;
         let snappedMouseX = 0;
         let mouseY = 0;
         
         let isMouseDown = false;
-        let lastTriggeredStringIndex = -1; // For mouse ONLY
+        let lastTriggeredStringIndex = -1;
         let currentMode = 'VECTOR';
         
         let isSnapped = false;
@@ -194,8 +196,6 @@
 
         let pulses = []; 
         let activeVoices = [];
-        
-        // Multi-touch Map: { identifier: {x, y, lastStringIdx} }
         let activeTouches = new Map();
 
         // Scale Map
@@ -237,7 +237,7 @@
             canvas.addEventListener('mousedown', handleMouseDown);
             canvas.addEventListener('mouseup', handleMouseUp);
             
-            // Multi-Touch
+            // Touch
             canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
             canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
             canvas.addEventListener('touchend', handleTouchEnd, {passive: false});
@@ -262,11 +262,7 @@
             masterGain.connect(audioCtx.destination);
             
             document.getElementById('start-overlay').style.display = 'none';
-            
-            // Resume context if suspended (common on mobile)
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             
             requestAnimationFrame(animate);
         }
@@ -282,7 +278,7 @@
         }
 
 
-        // --- DSP UTILITIES ---
+        // --- DSP & UTILITIES (SAME AS BEFORE) ---
         function clamp(x, a, b){ return Math.min(b, Math.max(a, x)); }
         function centsToRatio(c){ return Math.pow(2, c/1200); }
 
@@ -297,8 +293,6 @@
             return buf;
         }
 
-
-        // --- DSP ENGINE ---
         function pluckDoubleCourse(ctx, destination, baseFreq, currentRatio, opt={}){
             const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.010, detune2_cents = 2.0, spread = 0.10 } = opt;
             const t0 = ctx.currentTime;
@@ -329,14 +323,10 @@
                 const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = startF*2;
                 const o3 = ctx.createOscillator(); o3.type = "sine"; o3.frequency.value = startF*3;
                 
-                o1.freqMult = 1 * freqMult; 
-                o2.freqMult = 2 * freqMult;
-                o3.freqMult = 3 * freqMult;
-
+                o1.freqMult = 1 * freqMult; o2.freqMult = 2 * freqMult; o3.freqMult = 3 * freqMult;
                 const g1 = ctx.createGain(); g1.gain.value = 1.00;
                 const g2 = ctx.createGain(); g2.gain.value = 0.30;
                 const g3 = ctx.createGain(); g3.gain.value = 0.16;
-                
                 o1.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
                 o2.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
                 o3.detune.value = (Math.random()*2-1)*1.5 + detuneAmt;
@@ -352,7 +342,6 @@
                 o1.start(ts); o2.start(ts); o3.start(ts); n.start(ts); n.stop(ts + 0.070);
                 const stopAt = ts + 2.1;
                 o1.stop(stopAt); o2.stop(stopAt); o3.stop(stopAt);
-                
                 collectedOscs.push(o1, o2, o3);
             }
 
@@ -363,11 +352,7 @@
             const stopTime = t0 + 2.1;
             const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stopTime: stopTime, type: 'G1' };
             activeVoices.push(voiceObj);
-            
-            setTimeout(() => {
-                const idx = activeVoices.indexOf(voiceObj);
-                if(idx > -1) activeVoices.splice(idx, 1);
-            }, 2200);
+            setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, 2200);
         }
 
         function pluckGuitarIISlide(ctx, destination, baseFreq, startRatio, opt={}){
@@ -411,20 +396,14 @@
 
             const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stopTime: stopTime, type: 'G2' };
             activeVoices.push(voiceObj);
-            
-            setTimeout(() => {
-                const idx = activeVoices.indexOf(voiceObj);
-                if(idx > -1) activeVoices.splice(idx, 1);
-            }, (dur + 0.2) * 1000);
+            setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, (dur + 0.2) * 1000);
         }
 
-        // --- WRAPPERS ---
-
+        // --- PLAY ---
         function playGuitarICourse(baseFreq, currentRatio) {
             if (!audioCtx) return;
             pluckDoubleCourse(audioCtx, masterGain, baseFreq, currentRatio, {
-                dur: 2.5, amp: 0.22, bright: 0.7, noise: 0.15,
-                delay2: 0.012, detune2_cents: 2.5
+                dur: 2.5, amp: 0.22, bright: 0.7, noise: 0.15, delay2: 0.012, detune2_cents: 2.5
             });
         }
 
@@ -435,30 +414,20 @@
             });
         }
 
-
-        // --- INPUT LOGIC ---
-
+        // --- LOGIC ---
         function calculateRatio(px) {
             let closestDist = Infinity;
             let closestIdx = -1;
-            
             scaleMap.forEach((item, index) => {
                 const targetX = (index / (scaleMap.length - 1)) * width;
                 const dist = Math.abs(px - targetX);
                 const threshold = item.main ? SNAP_THRESHOLD_MAIN : SNAP_THRESHOLD_SUB;
-                
-                if (dist < threshold && dist < closestDist) {
-                    closestDist = dist;
-                    closestIdx = index;
-                }
+                if (dist < threshold && dist < closestDist) { closestDist = dist; closestIdx = index; }
             });
 
-            // Return object for consistent state update
             if (closestIdx !== -1) {
                 return { 
-                    ratio: scaleMap[closestIdx].r, 
-                    isSnapped: true, 
-                    idx: closestIdx, 
+                    ratio: scaleMap[closestIdx].r, isSnapped: true, idx: closestIdx, 
                     snappedX: (closestIdx / (scaleMap.length - 1)) * width,
                     display: scaleMap[closestIdx].label || formatRatio(scaleMap[closestIdx].r)
                 };
@@ -468,16 +437,8 @@
                 const r1 = scaleMap[Math.max(0, idxFloor)];
                 const r2 = scaleMap[Math.min(scaleMap.length-1, idxFloor+1)];
                 const pct = ratioIdxFloat - idxFloor;
-                let r = 1.0;
-                if(r1 && r2) r = r1.r + (r2.r - r1.r) * pct;
-                
-                return { 
-                    ratio: r, 
-                    isSnapped: false, 
-                    idx: -1, 
-                    snappedX: px,
-                    display: ""
-                };
+                let r = 1.0; if(r1 && r2) r = r1.r + (r2.r - r1.r) * pct;
+                return { ratio: r, isSnapped: false, idx: -1, snappedX: px, display: "" };
             }
         }
 
@@ -496,91 +457,51 @@
             else ratioDisplay.classList.remove('locked');
         }
 
-        // Mouse Handlers
+        // Mouse
         function handleMouseDown(e) {
             isMouseDown = true;
-            updateGlobalCursor(e.clientX, e.clientY); // Ensure pitch is correct before trigger
-            checkTrigger(e.clientY, -1); // -1 forces trigger check against global last
+            updateGlobalCursor(e.clientX, e.clientY); 
+            checkTrigger(e.clientY, -1);
         }
-
-        function handleMouseUp() {
-            isMouseDown = false;
-            lastTriggeredStringIndex = -1; 
-        }
-
+        function handleMouseUp() { isMouseDown = false; lastTriggeredStringIndex = -1; }
         function handleMouseMove(e) {
             if (!canvas) return;
             const rect = canvas.getBoundingClientRect();
             const px = e.clientX - rect.left;
             const py = e.clientY - rect.top;
-            
             updateGlobalCursor(px, py);
-
-            // Slide Effect (Mouse Down)
-            if (isMouseDown && activeVoices.length > 0) {
-                applySlideToVoices(currentPitchRatio);
-            }
-
-            // Strumming
-            if (isMouseDown) {
-                checkTrigger(py, -1); 
-            }
+            if (isMouseDown && activeVoices.length > 0) applySlideToVoices(currentPitchRatio);
+            if (isMouseDown) checkTrigger(py, -1); 
         }
 
-        // Touch Handlers
+        // Touch
         function handleTouchStart(e) {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
-            
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
                 const px = t.clientX - rect.left;
                 const py = t.clientY - rect.top;
-                
-                // Track touch
                 activeTouches.set(t.identifier, { x: px, y: py, lastStr: -1 });
-                
-                // Update global cursor to the most recent touch (for slide logic)
                 updateGlobalCursor(px, py);
-                
-                // Trigger sound
                 checkTrigger(py, t.identifier);
             }
         }
-
         function handleTouchMove(e) {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
-            
-            // Check slide need
-            // If dragging X, update global pitch
-            // We use the *first* active touch as the "Pitch Master" if multiple are present, 
-            // or just the moving one. To simplify: The last moved touch updates global pitch.
-            
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
                 const px = t.clientX - rect.left;
                 const py = t.clientY - rect.top;
-                
                 const touchData = activeTouches.get(t.identifier);
-                if (touchData) {
-                    touchData.x = px;
-                    touchData.y = py;
-                }
-
-                // Update pitch
-                updateGlobalCursor(px, py);
+                if (touchData) { touchData.x = px; touchData.y = py; }
                 
-                // Apply Slide
-                if (activeVoices.length > 0) {
-                    applySlideToVoices(currentPitchRatio);
-                }
-
-                // Check Strum
+                updateGlobalCursor(px, py);
+                if (activeVoices.length > 0) applySlideToVoices(currentPitchRatio);
                 checkTrigger(py, t.identifier);
             }
         }
-
         function handleTouchEnd(e) {
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
@@ -599,37 +520,27 @@
         }
 
         function checkTrigger(y, touchId) {
-            // Retrieve last string index for this specific input source
-            // If touchId is -1, use global mouse var. If >=0, use Map.
             let lastIdx = (touchId === -1) ? lastTriggeredStringIndex : (activeTouches.get(touchId)?.lastStr ?? -1);
-
             if (currentMode === 'VECTOR') {
                 const spacing = height / 3;
                 const courseIdx = Math.floor(y / spacing);
-                
                 if (courseIdx >= 0 && courseIdx < 3 && courseIdx !== lastIdx) {
                     const baseFreq = vectorCourses[courseIdx].freq;
                     playGuitarICourse(baseFreq, currentPitchRatio);
-                    
                     const visualY = (courseIdx * spacing) + (spacing / 2);
                     pulses.push({ y: visualY - 5, life: 1, color: '#fff', w: 2 });
                     pulses.push({ y: visualY + 5, life: 1, color: '#fff', w: 2 });
-                    
-                    // Update tracker
                     if (touchId === -1) lastTriggeredStringIndex = courseIdx;
                     else if (activeTouches.has(touchId)) activeTouches.get(touchId).lastStr = courseIdx;
                 }
             } else {
                 const spacing = height / 10;
                 const stringIdx = Math.floor(y / spacing);
-                
                 if (stringIdx >= 0 && stringIdx < 10 && stringIdx !== lastIdx) {
                     const baseFreq = slateStrings[stringIdx];
                     playGuitarIIString(baseFreq, currentPitchRatio);
-                    
                     const visualY = (stringIdx * spacing) + (spacing / 2);
                     pulses.push({ y: visualY, life: 1, color: '#aaa', w: 8 });
-                    
                     if (touchId === -1) lastTriggeredStringIndex = stringIdx;
                     else if (activeTouches.has(touchId)) activeTouches.get(touchId).lastStr = stringIdx;
                 }
@@ -638,9 +549,7 @@
 
         function formatRatio(r) { return r ? r.toFixed(2) : ""; }
 
-
         // --- RENDERING ---
-
         function drawGrid() {
             const step = width / (scaleMap.length - 1);
             scaleMap.forEach((item, index) => {
@@ -648,18 +557,17 @@
                 ctx.beginPath();
                 ctx.moveTo(x, 0);
                 ctx.lineTo(x, height);
-                
                 if (isSnapped && activeRatioIndex === index) {
                     ctx.strokeStyle = 'rgba(0, 255, 157, 0.8)';
                     ctx.lineWidth = 2;
                 } else if (item.main) {
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
                     ctx.lineWidth = 1;
-                    // Draw Ratio Labels at bottom
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                    ctx.font = '10px Courier New';
+                    // Draw Ratio Label at Bottom
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                    ctx.font = '12px Courier New';
                     ctx.textAlign = 'left';
-                    ctx.fillText(item.label, x + 4, height - 10);
+                    ctx.fillText(item.label, x + 4, height - 15);
                 } else {
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
                     ctx.lineWidth = 1;
@@ -674,18 +582,10 @@
                 const spacing = height / count;
                 for (let i = 0; i < count; i++) {
                     const centerY = (i * spacing) + (spacing / 2);
-                    // Minimal highlight check
                     let highlight = false;
                     if (isMouseDown && Math.floor(mouseY/spacing) === i) highlight = true;
-                    // Check touches
-                    for (let t of activeTouches.values()) {
-                        if (Math.floor(t.y/spacing) === i) highlight = true;
-                    }
-
-                    if (highlight) {
-                        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-                        ctx.fillRect(0, i*spacing, width, spacing);
-                    }
+                    for (let t of activeTouches.values()) { if (Math.floor(t.y/spacing) === i) highlight = true; }
+                    if (highlight) { ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(0, i*spacing, width, spacing); }
                     ctx.beginPath(); ctx.moveTo(0, centerY - 5); ctx.lineTo(width, centerY - 5); ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, centerY + 5); ctx.lineTo(width, centerY + 5); ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
                 }
@@ -702,48 +602,38 @@
         function drawPulses() {
             for (let i = pulses.length - 1; i >= 0; i--) {
                 let p = pulses[i];
-                
                 ctx.shadowBlur = 15 * p.life; ctx.shadowColor = p.color; ctx.strokeStyle = `rgba(255, 255, 255, ${p.life})`; ctx.lineWidth = p.w ? p.w : 3;
-                
-                ctx.beginPath();
-                ctx.moveTo(0, p.y);
+                ctx.beginPath(); ctx.moveTo(0, p.y);
                 for (let x = 0; x <= width; x += 30) {
                     let jitter = (Math.random() - 0.5) * 10 * p.life;
                     ctx.lineTo(x, p.y + jitter);
                 }
-                ctx.lineTo(width, p.y);
-                ctx.stroke();
-                
-                ctx.shadowBlur = 0; p.life -= 0.04; 
-                if (p.life <= 0) pulses.splice(i, 1);
+                ctx.lineTo(width, p.y); ctx.stroke();
+                ctx.shadowBlur = 0; p.life -= 0.04; if (p.life <= 0) pulses.splice(i, 1);
             }
         }
 
         function drawCursor() {
-            // Draw Main Cursor (from last active input)
             const x = snappedMouseX;
             const y = mouseY;
+            // UNIFIED SLIDE VISUALS FOR BOTH INSTRUMENTS
+            // Dark Klein Blue + Bar Width
+            const barWidth = 20;
+            
+            ctx.fillStyle = 'rgba(0, 32, 128, 0.8)'; // Dark Klein
+            ctx.fillRect(x - barWidth/2, 0, barWidth, height);
+            ctx.fillStyle = '#0033cc'; // Lighter edge
+            ctx.fillRect(x - 1, 0, 3, height);
+            
+            // Red Dot for "Pick Point" (Y Axis)
+            ctx.fillStyle = '#f00'; 
+            ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
 
-            if (currentMode === 'VECTOR') {
-                ctx.fillStyle = isSnapped ? '#00ff9d' : '#fff';
-                ctx.beginPath(); ctx.arc(x, y, isSnapped ? 6 : 4, 0, Math.PI * 2); ctx.fill();
-                ctx.strokeStyle = isSnapped ? 'rgba(0, 255, 157, 0.5)' : 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-            } else {
-                const barWidth = 20;
-                ctx.fillStyle = isSnapped ? 'rgba(0, 50, 30, 0.8)' : 'rgba(80, 80, 80, 0.8)';
-                ctx.fillRect(x - barWidth/2, 0, barWidth, height);
-                ctx.fillStyle = isSnapped ? '#00ff9d' : 'rgba(200, 200, 200, 0.5)';
-                ctx.fillRect(x - 1, 0, 3, height);
-                ctx.fillStyle = '#f00';
-                ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
-            }
-
-            // Draw extra touch cursors (simple dots)
+            // Touches
             if (activeTouches.size > 0) {
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
                 for (let t of activeTouches.values()) {
-                    if (Math.abs(t.x - x) > 5 || Math.abs(t.y - y) > 5) { // Don't double draw main
+                    if (Math.abs(t.x - x) > 5 || Math.abs(t.y - y) > 5) {
                         ctx.beginPath(); ctx.arc(t.x, t.y, 4, 0, Math.PI*2); ctx.fill();
                     }
                 }
