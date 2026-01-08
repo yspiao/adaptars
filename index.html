@@ -12,6 +12,7 @@
             --dim: #444444;
             --accent: #333333;
             --harmonics-active: #b19cd9;
+            --slide-color: #002080;
         }
         body {
             margin: 0; background-color: var(--bg); color: var(--primary);
@@ -20,6 +21,7 @@
             height: 100dvh; overscroll-behavior: none;
         }
         
+        /* HEADER */
         header {
             display: flex; justify-content: space-between; align-items: center;
             padding: 10px 20px; border-bottom: 1px solid var(--accent);
@@ -34,7 +36,6 @@
         .brand { font-weight: bold; letter-spacing: 3px; font-size: 18px; animation: breathe 4s ease-in-out infinite; }
         
         .controls { display: flex; gap: 15px; align-items: center; }
-        .mode-switch { display: flex; gap: 10px; }
         
         button {
             background: none; border: 1px solid var(--dim); color: var(--dim);
@@ -58,9 +59,10 @@
         }
         canvas { display: block; width: 100%; height: 100%; }
 
+        /* Centered Ratio Display (Vertical Layout) */
         #ratio-display {
             font-size: 15vw; font-weight: bold; color: rgba(255,255,255,0.03); 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
             pointer-events: none; z-index: 0; transition: color 0.1s; white-space: nowrap;
         }
         #ratio-display.locked { color: rgba(180, 180, 180, 0.15); }
@@ -85,10 +87,8 @@
     <header>
         <div class="brand">ADAPTARS</div>
         <div class="controls">
-            <div class="mode-switch">
-                <button id="btn-vector" class="active">I</button>
-                <button id="btn-slate">II</button>
-            </div>
+            <button id="btn-vector" class="active">I</button>
+            <button id="btn-slate">II</button>
             <button id="btn-harm">H</button>
         </div>
     </header>
@@ -99,30 +99,36 @@
     </div>
 
     <script>
-        // --- 1. CONFIGURATION ---
-        const SNAP_THRESHOLD_MAIN = 35; 
-        const SNAP_THRESHOLD_SUB = 15;  
+        // --- 1. CONFIGURATION (FIXED MISSING CONSTANTS) ---
+        const SNAP_THRESHOLD_MAIN = 30; // Pixels
+        const SNAP_THRESHOLD_SUB = 10;
+        const SELECT_ZONE_RATIO = 0.20; // Bottom 20% is for selection in Harmonics Mode
 
-        // --- 2. GLOBAL VARIABLES ---
+        // --- 2. GLOBAL VARIABLES (FIXED MISSING DEFINITIONS) ---
         let audioCtx;
         let masterGain;
         let canvas, ctx;
         let width, height;
         
+        // Input State
         let isMouseDown = false;
         let currentMode = 'VECTOR';
         let isHarmonicsMode = false;
         let pulses = []; 
-        let rawMouseX = 0; 
-        let lastMouseY = 0;
-        let lastTriggeredStringIndex = -1;
+        let rawMouseY = 0; // Vertical Pitch
+        let lastMouseY = 0; // DEFINED: For velocity calc
+        let lastTriggeredStringIndex = -1; // DEFINED: Global tracker
         
         let activeVoices = [];
-        let activeTouches = new Map();
+        let activeTouches = new Map(); 
         let bowedVoices = new Map();
 
+        // Slide State (Vertical Orientation)
         let slideState = {
-            active: false, xTop: 0, xBottom: 0, isVertical: true, displayRatio: 1.0, isSnapped: false,
+            active: false, 
+            y: 0, // Horizontal bar Y position
+            displayRatio: 1.0, 
+            isSnapped: false,
             controllingTouchId: null
         };
 
@@ -155,13 +161,15 @@
             
             window.addEventListener('resize', resize);
             
-            document.addEventListener('mousemove', handleMouseMove);
-            canvas.addEventListener('mousedown', handleMouseDown);
-            canvas.addEventListener('mouseup', handleMouseUp);
+            // Input Handlers
             canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
             canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
             canvas.addEventListener('touchend', handleTouchEnd, {passive: false});
             canvas.addEventListener('touchcancel', handleTouchEnd, {passive: false});
+            
+            canvas.addEventListener('mousedown', handleMouseDown);
+            window.addEventListener('mousemove', handleMouseMove); 
+            window.addEventListener('mouseup', handleMouseUp);
 
             resize();
         };
@@ -171,11 +179,10 @@
             const container = document.getElementById('instrument-container');
             width = canvas.width = container.clientWidth;
             height = canvas.height = container.clientHeight;
-            if(rawMouseX === 0) rawMouseX = width / 2;
+            if(rawMouseY === 0) rawMouseY = 0; 
         }
 
         function initAudio() {
-            if (audioCtx) return;
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
             masterGain = audioCtx.createGain();
@@ -225,8 +232,8 @@
 
         // --- 5. SOUND ENGINES ---
 
-        // GUITAR I (Classic Triangle/Sine - Warm)
-        function pluckDoubleCourse(ctx, destination, baseFreq, startRatio, stringY, opt={}){
+        // GUITAR I (Classic Warm)
+        function pluckDoubleCourse(ctx, destination, baseFreq, startRatio, stringX, opt={}){
             const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.010, detune2_cents = 2.0 } = opt;
             const t0 = ctx.currentTime;
             const f1 = baseFreq * startRatio;
@@ -244,12 +251,10 @@
             function oneString(freqMult, startDelay, localAmp, localBright, detuneAmt){
                 const ts = t0 + startDelay;
                 const startF = f1 * freqMult;
-
                 const env = ctx.createGain();
                 env.gain.setValueAtTime(0.00001, ts);
                 env.gain.linearRampToValueAtTime(localAmp, ts + 0.010);
                 env.gain.exponentialRampToValueAtTime(0.0001, ts + 2.0);
-
                 const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = clamp(700 + startF*(6 + 18*localBright), 700, 16000); tone.Q.value = 0.22;
                 
                 const o1 = ctx.createOscillator(); o1.type = "triangle"; o1.frequency.value = startF;
@@ -257,9 +262,7 @@
                 const o3 = ctx.createOscillator(); o3.type = "sine"; o3.frequency.value = startF*3;
                 
                 o1.freqMult = 1 * freqMult; o2.freqMult = 2 * freqMult; o3.freqMult = 3 * freqMult;
-                o1.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
-                o2.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
-                o3.detune.value = (Math.random()*2-1)*1.5 + detuneAmt;
+                o1.detune.value = detuneAmt; o2.detune.value = detuneAmt; o3.detune.value = detuneAmt;
 
                 const g1 = ctx.createGain(); g1.gain.value = 1.0;
                 const g2 = ctx.createGain(); g2.gain.value = 0.3;
@@ -283,13 +286,13 @@
             const detRatio = centsToRatio((Math.random()*2-1) * detune2_cents);
             oneString(2.0 * detRatio, clamp(delay2, 0.0, 0.03), amp * 0.9, bright * 0.92, detune2_cents);
 
-            const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stringY: stringY, type: 'G1' };
+            const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stringX: stringX, type: 'G1' };
             activeVoices.push(voiceObj);
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, 2200);
         }
 
-        // GUITAR II DSP: NORMAL
-        function pluckGuitarIISlide(ctx, destination, baseFreq, startRatio, stringY, opt={}){
+        // GUITAR II DSP: CLEAN SLIDE
+        function pluckGuitarIISlide(ctx, destination, baseFreq, startRatio, stringX, opt={}){
              const { dur = 3.5, amp = 0.25, bright = 0.75 } = opt;
             const t0 = ctx.currentTime;
             const startF = baseFreq * startRatio;
@@ -319,14 +322,13 @@
             const stopTime = t0 + dur + 0.1;
             o1.stop(stopTime); o2.stop(stopTime); o3.stop(stopTime);
 
-            const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stringY: stringY, type: 'G2' };
+            const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stringX: stringX, type: 'G2' };
             activeVoices.push(voiceObj);
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, (dur + 0.2) * 1000);
         }
 
         // STABLE HARMONICS ENGINE (INDEPENDENT FLUCTUATION)
-        // Returns object with control over individual partial gains
-        function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringY) {
+        function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringX) {
             const t0 = ctx.currentTime;
             const f = baseFreq * startRatio; 
 
@@ -338,14 +340,12 @@
             
             o1.frequency.value = f; o2.frequency.value = f*2; o3.frequency.value = f*3; o4.frequency.value = f*4;
 
-            // Individual Gains for Fluctuation
-            // Base levels: 1.0, 0.5, 0.33, 0.25
+            // Independent Gains
             const g1 = ctx.createGain(); g1.gain.value = 1.0;
             const g2 = ctx.createGain(); g2.gain.value = 0.5;
             const g3 = ctx.createGain(); g3.gain.value = 0.33;
             const g4 = ctx.createGain(); g4.gain.value = 0.25;
 
-            // Master Gain controlled by bow velocity
             const masterGainNode = ctx.createGain();
             masterGainNode.gain.value = 0; 
 
@@ -358,18 +358,17 @@
 
             o1.start(t0); o2.start(t0); o3.start(t0); o4.start(t0);
 
-            // Active voice object with extended controls
             const voiceObj = { 
                 baseFreq: baseFreq, 
                 oscList: [o1, o2, o3, o4], 
                 partialGains: [g1, g2, g3, g4],
-                baseGainValues: [1.0, 0.5, 0.33, 0.25], // Reference for fluctuation
+                baseGainValues: [1.0, 0.5, 0.33, 0.25],
                 type: 'HARM',
                 gainNode: masterGainNode,
-                stringY: stringY,
+                stringX: stringX,
                 kill: function() {
                     const t = ctx.currentTime;
-                    this.gainNode.gain.setTargetAtTime(0, t, 0.2); // Smooth fade
+                    this.gainNode.gain.setTargetAtTime(0, t, 0.2); 
                     setTimeout(() => {
                         o1.stop(); o2.stop(); o3.stop(); o4.stop();
                         const idx = activeVoices.indexOf(this);
@@ -384,38 +383,41 @@
 
         // --- 6. LOGIC ---
 
-        function playGuitarICourse(baseFreq, currentRatio, stringY) {
+        function playGuitarICourse(baseFreq, currentRatio, stringX) {
             if (!audioCtx) return;
-            pluckDoubleCourse(audioCtx, masterGain, baseFreq, currentRatio, stringY);
+            pluckDoubleCourse(audioCtx, masterGain, baseFreq, currentRatio, stringX);
         }
 
-        function playGuitarIIString(baseFreq, ratio, stringY) {
+        function playGuitarIIString(baseFreq, ratio, stringX) {
             if (!audioCtx) return;
-            pluckGuitarIISlide(audioCtx, masterGain, baseFreq, ratio, stringY);
+            pluckGuitarIISlide(audioCtx, masterGain, baseFreq, ratio, stringX);
         }
 
         function getHarmonicRatio() {
-            return calculateRatio(slideState.xTop).ratio;
+            return calculateRatio(slideState.y).ratio; // Use Y for pitch
         }
 
+        // BOWING LOGIC (Zoned)
         function updateBowing(velocity) {
             const slideTouchId = slideState.controllingTouchId;
             const isVector = currentMode === 'VECTOR';
             
-            const cfg = isVector ? { count: 3, spacing: height/3 } : { count: 10, spacing: height/10 };
+            // Width-based spacing for vertical mode
+            const cfg = isVector ? { count: 3, spacing: width/3 } : { count: 10, spacing: width/10 };
             
             const activeStringIndices = new Set();
-            
+            const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
+
             activeTouches.forEach((data, id) => {
-                if (id !== slideTouchId) {
-                    const idx = Math.floor(data.y / cfg.spacing);
+                // Check if touch is in selection zone (Bottom 20%)
+                if (data.y > selectionZoneTop) {
+                    const idx = Math.floor(data.x / cfg.spacing);
                     if (idx >= 0 && idx < cfg.count) activeStringIndices.add(idx);
                 }
             });
 
             // Ghost Mode
             const isGhostMode = (activeStringIndices.size === 0);
-            
             const r = getHarmonicRatio();
             const speed = Math.abs(velocity);
             
@@ -426,23 +428,19 @@
                 if (isActive && speed > 0.5) {
                     if (!voice) {
                         const baseFreq = isVector ? vectorCourses[i].freq : slateStrings[i];
-                        const visualY = (i * cfg.spacing) + (cfg.spacing/2);
-                        voice = startBowedHarmonic(audioCtx, masterGain, baseFreq, r, visualY);
+                        const visualX = (i * cfg.spacing) + (cfg.spacing/2);
+                        voice = startBowedHarmonic(audioCtx, masterGain, baseFreq, r, visualX);
                         bowedVoices.set(i, voice);
                     }
                     
-                    // 1. MASTER VOLUME (Velocity)
                     const vol = Math.min(speed * 0.015 + 0.05, 0.6);
                     voice.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
                     
-                    // 2. INDEPENDENT PARTIAL FLUCTUATION (Shimmer)
-                    // Fluctuate each partial around its base value
+                    // Partial Fluctuation
                     voice.partialGains.forEach((pg, idx) => {
                         const base = voice.baseGainValues[idx];
-                        // +/- 15% fluctuation
                         const jitter = (Math.random() - 0.5) * (base * 0.3); 
-                        const target = Math.max(0, base + jitter);
-                        pg.gain.setTargetAtTime(target, audioCtx.currentTime, 0.1);
+                        pg.gain.setTargetAtTime(Math.max(0, base + jitter), audioCtx.currentTime, 0.1);
                     });
 
                     // Pitch update
@@ -453,8 +451,8 @@
                     });
 
                     if (Math.random() > 0.85) {
-                        const visualY = (i * cfg.spacing) + (cfg.spacing/2);
-                        pulses.push({ y: visualY, life: 0.6, color: '#b19cd9', w: 2 });
+                        const visualX = (i * cfg.spacing) + (cfg.spacing/2);
+                        pulses.push({ x: visualX, life: 0.6, color: '#b19cd9', w: 2 });
                     }
 
                 } else {
@@ -463,34 +461,31 @@
             }
         }
 
-        function checkTrigger(y, touchId, velocity) {
-            if (isHarmonicsMode) return;
+        // TRIGGER CHECK (STRUMMING)
+        function checkTrigger(x, y, touchId) {
+            const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
+            // Ignore triggers in Selection Zone during Harmonics
+            if (isHarmonicsMode && y > selectionZoneTop) return; 
+            if (isHarmonicsMode) return; 
 
-            const cfg = (currentMode === 'VECTOR') ? { count: 3, spacing: height/3 } : { count: 10, spacing: height/10 };
-            const strIdx = Math.floor(y / cfg.spacing);
+            const cfg = (currentMode === 'VECTOR') ? { count: 3, spacing: width/3 } : { count: 10, spacing: width/10 };
+            const strIdx = Math.floor(x / cfg.spacing);
             
             let lastIdx = (touchId === -1) ? lastTriggeredStringIndex : (activeTouches.get(touchId)?.lastStr ?? -1);
 
             if (strIdx >= 0 && strIdx < cfg.count && strIdx !== lastIdx) {
-                const visualY = (strIdx * cfg.spacing) + (cfg.spacing / 2);
-                
-                let targetX;
-                if (slideState.isVertical) targetX = slideState.xTop;
-                else {
-                    const pct = visualY / height;
-                    targetX = slideState.xTop + (slideState.xBottom - slideState.xTop) * pct;
-                }
-                const r = calculateRatio(targetX).ratio;
+                const visualX = (strIdx * cfg.spacing) + (cfg.spacing / 2);
+                const r = calculateRatio(y).ratio; // Y is Pitch
 
                 if (currentMode === 'VECTOR') {
                     const baseFreq = vectorCourses[strIdx].freq;
-                    playGuitarICourse(baseFreq, r, visualY);
-                    pulses.push({ y: visualY - 5, life: 1, color: '#fff', w: 2 });
-                    pulses.push({ y: visualY + 5, life: 1, color: '#fff', w: 2 });
+                    playGuitarICourse(baseFreq, r, visualX);
+                    pulses.push({ x: visualX - 5, life: 1, color: '#fff', w: 2 });
+                    pulses.push({ x: visualX + 5, life: 1, color: '#fff', w: 2 });
                 } else {
                     const baseFreq = slateStrings[strIdx];
-                    playGuitarIIString(baseFreq, r, visualY); 
-                    pulses.push({ y: visualY, life: 1, color: '#aaa', w: 8 });
+                    playGuitarIIString(baseFreq, r, visualX); 
+                    pulses.push({ x: visualX, life: 1, color: '#aaa', w: 8 });
                 }
 
                 if (touchId === -1) lastTriggeredStringIndex = strIdx;
@@ -498,85 +493,58 @@
             }
         }
 
-        // --- 7. SLIDE PHYSICS ---
+        // --- 7. SLIDE PHYSICS (VERTICAL ORIENTATION) ---
 
-        function updateSlideState(controllingId) {
-            const touches = Array.from(activeTouches.values());
-            
-            if (touches.length === 0 && !isMouseDown) {
+        function updateSlideState() {
+            // "Slide Touch" is any touch in the UPPER zone
+            let targetY = rawMouseY;
+            let activeTouchCount = 0;
+            const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
+
+            if (activeTouches.size > 0) {
+                for (let t of activeTouches.values()) {
+                    if (t.y < selectionZoneTop || !isHarmonicsMode) {
+                        targetY = t.y;
+                        activeTouchCount++;
+                    }
+                }
+            } else if (!isMouseDown) {
                 slideState.active = false;
-                slideState.isVertical = true;
-                if (rawMouseX > 0) { slideState.xTop = rawMouseX; slideState.xBottom = rawMouseX; }
-                const res = calculateRatio(slideState.xTop);
-                updateRatioDisplay(res);
-                return; 
             }
 
-            slideState.active = true;
-            slideState.controllingTouchId = controllingId;
+            if (isMouseDown || activeTouchCount > 0) slideState.active = true;
 
-            if (isHarmonicsMode) {
-                slideState.isVertical = true;
-                slideState.isSnapped = true; 
-                
-                let tx = rawMouseX;
-                if (controllingId !== -1 && activeTouches.has(controllingId)) {
-                    tx = activeTouches.get(controllingId).x;
-                } else if (touches.length > 0) {
-                    tx = touches[touches.length-1].x; 
-                }
-
-                slideState.xTop = tx; slideState.xBottom = tx;
-                const res = calculateRatio(tx);
-                updateRatioDisplay(res);
-
-            } else {
-                if (touches.length === 1 || (touches.length === 0 && isMouseDown)) {
-                    slideState.isVertical = true;
-                    const tx = (touches.length > 0) ? touches[0].x : rawMouseX;
-                    const res = calculateRatio(tx);
-                    slideState.displayRatio = res.ratio;
-                    slideState.isSnapped = res.isSnapped;
-                    if(res.isSnapped) { slideState.xTop = res.snappedX; slideState.xBottom = res.snappedX; } 
-                    else { slideState.xTop = tx; slideState.xBottom = tx; }
-                    updateRatioDisplay(res);
-                } else {
-                    slideState.isVertical = false;
-                    slideState.isSnapped = false;
-                    touches.sort((a, b) => a.y - b.y);
-                    const tTop = touches[0];
-                    const tBot = touches[touches.length - 1];
-                    let dy = tBot.y - tTop.y; if (dy < 1) dy = 1; 
-                    const m = (tBot.x - tTop.x) / dy;
-                    slideState.xTop = m * (0 - tTop.y) + tTop.x;
-                    slideState.xBottom = m * (height - tTop.y) + tTop.x;
-                    updateRatioDisplay({display: "", isSnapped: false});
-                }
-            }
+            const res = calculateRatio(targetY);
+            slideState.y = res.snappedY || targetY;
+            slideState.displayRatio = res.ratio;
+            slideState.isSnapped = res.isSnapped;
             
-            if (!isHarmonicsMode) updateVoicesPitch();
+            updateRatioDisplay(res);
+            updateVoicesPitch();
         }
 
-        function calculateRatio(px) {
+        function calculateRatio(py) {
             let closestDist = Infinity;
             let closestIdx = -1;
+            
+            // Map Y (0 to Height)
             scaleMap.forEach((item, index) => {
-                const targetX = (index / (scaleMap.length - 1)) * width;
-                const dist = Math.abs(px - targetX);
+                const targetY = (index / (scaleMap.length - 1)) * height;
+                const dist = Math.abs(py - targetY);
                 const threshold = item.main ? SNAP_THRESHOLD_MAIN : SNAP_THRESHOLD_SUB;
                 if (dist < threshold && dist < closestDist) { closestDist = dist; closestIdx = index; }
             });
 
             if (closestIdx !== -1) {
-                return { ratio: scaleMap[closestIdx].r, isSnapped: true, idx: closestIdx, snappedX: (closestIdx / (scaleMap.length - 1)) * width, display: scaleMap[closestIdx].label || formatRatio(scaleMap[closestIdx].r) };
+                return { ratio: scaleMap[closestIdx].r, isSnapped: true, idx: closestIdx, snappedY: (closestIdx / (scaleMap.length - 1)) * height, display: scaleMap[closestIdx].label || formatRatio(scaleMap[closestIdx].r) };
             } else {
-                const ratioIdxFloat = (px / width) * (scaleMap.length - 1);
+                const ratioIdxFloat = (py / height) * (scaleMap.length - 1);
                 const idxFloor = Math.floor(ratioIdxFloat);
                 const r1 = scaleMap[Math.max(0, idxFloor)];
                 const r2 = scaleMap[Math.min(scaleMap.length-1, idxFloor+1)];
                 const pct = ratioIdxFloat - idxFloor;
                 let r = 1.0; if(r1 && r2) r = r1.r + (r2.r - r1.r) * pct;
-                return { ratio: r, isSnapped: false, idx: -1, snappedX: px, display: "" };
+                return { ratio: r, isSnapped: false, idx: -1, snappedY: py, display: "" };
             }
         }
         
@@ -590,17 +558,12 @@
         function updateVoicesPitch() {
             if (activeVoices.length === 0) return;
             const t = audioCtx.currentTime;
+            const currentR = calculateRatio(slideState.y).ratio;
+            
             activeVoices.forEach(voice => {
                 if (voice.type === 'HARM') return; 
-                let targetX;
-                if (slideState.isVertical) targetX = slideState.xTop;
-                else {
-                    const pct = voice.stringY / height;
-                    targetX = slideState.xTop + (slideState.xBottom - slideState.xTop) * pct;
-                }
-                const finalRatio = calculateRatio(targetX).ratio;
                 voice.oscList.forEach(osc => {
-                    const newFreq = voice.baseFreq * (osc.freqMult || 1) * finalRatio;
+                    const newFreq = voice.baseFreq * (osc.freqMult || 1) * currentR;
                     osc.frequency.setTargetAtTime(newFreq, t, 0.05);
                 });
             });
@@ -610,100 +573,108 @@
 
         function handleMouseDown(e) {
             isMouseDown = true;
-            rawMouseX = e.clientX - canvas.getBoundingClientRect().left;
-            lastMouseY = e.clientY;
-            updateSlideState(-1);
-            if (!isHarmonicsMode) checkTrigger(e.clientY - canvas.getBoundingClientRect().top, -1, 0);
+            rawMouseY = e.clientY;
+            updateSlideState();
+            checkTrigger(e.clientX, e.clientY, -1);
         }
         function handleMouseUp() { 
-            isMouseDown = false; lastTriggeredStringIndex = -1; updateSlideState(-1); 
+            isMouseDown = false; lastTriggeredStringIndex = -1; updateSlideState(); 
             bowedVoices.forEach(v => v.kill()); bowedVoices.clear(); 
         }
         function handleMouseMove(e) {
             if (!canvas) return;
-            const rect = canvas.getBoundingClientRect();
-            rawMouseX = e.clientX - rect.left;
+            rawMouseY = e.clientY;
             const vy = e.clientY - lastMouseY; lastMouseY = e.clientY;
-            updateSlideState(-1);
+            updateSlideState();
             if(isMouseDown) {
                 if (isHarmonicsMode) updateBowing(vy);
-                else checkTrigger(e.clientY - rect.top, -1, vy);
+                else checkTrigger(e.clientX, e.clientY, -1);
             }
         }
 
         function handleTouchStart(e) {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
-            let lastId = -1;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
-                activeTouches.set(t.identifier, { x: t.clientX - rect.left, y: t.clientY - rect.top, lastStr: -1, lastY: t.clientY - rect.top });
-                if (!isHarmonicsMode) checkTrigger(t.clientY - rect.top, t.identifier, 0);
-                lastId = t.identifier;
+                activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY, lastStr: -1, lastY: t.clientY });
+                checkTrigger(t.clientX, t.clientY, t.identifier);
             }
-            updateSlideState(lastId);
+            updateSlideState();
         }
         function handleTouchMove(e) {
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            let movingId = -1; let movingVy = 0;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
                 const touchData = activeTouches.get(t.identifier);
                 if (touchData) { 
-                    const curY = t.clientY - rect.top;
-                    const vy = curY - touchData.lastY;
-                    touchData.x = t.clientX - rect.left; touchData.y = curY; touchData.lastY = curY;
-                    if (!isHarmonicsMode) checkTrigger(curY, t.identifier, vy);
-                    movingId = t.identifier; movingVy = vy;
+                    const vy = t.clientY - touchData.lastY;
+                    touchData.x = t.clientX; touchData.y = t.clientY; touchData.lastY = t.clientY;
+                    
+                    checkTrigger(t.clientX, t.clientY, t.identifier);
+                    
+                    // Harmonics: Update if this touch is in Upper Zone
+                    const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
+                    if (isHarmonicsMode && t.clientY < selectionZoneTop) {
+                        updateBowing(vy);
+                    }
                 }
             }
-            updateSlideState(movingId);
-            if (isHarmonicsMode && movingId === slideState.controllingTouchId) {
-                updateBowing(movingVy);
-            }
+            updateSlideState();
         }
         function handleTouchEnd(e) {
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) { activeTouches.delete(e.changedTouches[i].identifier); }
             if (activeTouches.size === 0) { bowedVoices.forEach(v => v.kill()); bowedVoices.clear(); }
-            updateSlideState(null); 
+            updateSlideState(); 
         }
 
         function formatRatio(r) { return r ? r.toFixed(2) : ""; }
 
         // --- 9. RENDERING ---
         function drawGrid() {
-            const step = width / (scaleMap.length - 1);
+            const step = height / (scaleMap.length - 1);
             scaleMap.forEach((item, index) => {
-                const x = index * step;
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height);
-                if (slideState.isVertical && slideState.isSnapped && Math.abs(x - slideState.xTop) < 1) {
+                const y = index * step;
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y);
+                if (slideState.isSnapped && Math.abs(y - slideState.y) < 2) {
                     ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)'; ctx.lineWidth = 2;
                 } else if (item.main) {
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; ctx.lineWidth = 1;
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; ctx.font = '12px Courier New'; ctx.textAlign = 'left';
-                    ctx.fillText(item.label, x + 4, height - 15);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; ctx.font = '12px Courier New'; ctx.textAlign = 'right';
+                    ctx.fillText(item.label, width - 5, y - 2);
                 } else { ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)'; ctx.lineWidth = 1; }
                 ctx.stroke();
             });
         }
 
         function drawStrings() {
-            const cfg = (currentMode === 'VECTOR') ? { count: 3, spacing: height/3 } : { count: 10, spacing: height/10 };
+            const cfg = (currentMode === 'VECTOR') ? { count: 3, spacing: width/3 } : { count: 10, spacing: width/10 };
+            const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
+
             for (let i = 0; i < cfg.count; i++) {
-                const centerY = (i * cfg.spacing) + (cfg.spacing / 2);
+                const centerX = (i * cfg.spacing) + (cfg.spacing / 2);
                 let highlight = false;
-                if (isMouseDown && Math.abs(lastMouseY - canvas.getBoundingClientRect().top - centerY) < cfg.spacing/2) highlight = true;
-                for (let t of activeTouches.values()) { if (Math.abs(t.y - centerY) < cfg.spacing/2) highlight = true; }
-                if (highlight) { ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(0, i*cfg.spacing, width, cfg.spacing); }
+                
+                // Highlight based on touches
+                activeTouches.forEach(t => {
+                    const inZone = isHarmonicsMode ? (t.y > selectionZoneTop) : true;
+                    if (inZone && Math.abs(t.x - centerX) < cfg.spacing/2) highlight = true;
+                });
+
+                if (highlight) { ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(i*cfg.spacing, 0, cfg.spacing, height); }
                 
                 if (currentMode === 'VECTOR') {
-                    ctx.beginPath(); ctx.moveTo(0, centerY - 5); ctx.lineTo(width, centerY - 5); ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.stroke();
-                    ctx.beginPath(); ctx.moveTo(0, centerY + 5); ctx.lineTo(width, centerY + 5); ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(centerX - 5, 0); ctx.lineTo(centerX - 5, height); ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(centerX + 5, 0); ctx.lineTo(centerX + 5, height); ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
                 } else {
-                    ctx.beginPath(); ctx.moveTo(0, centerY); ctx.lineTo(width, centerY); ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(centerX, 0); ctx.lineTo(centerX, height); ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.stroke();
                 }
+            }
+
+            if (isHarmonicsMode) {
+                ctx.beginPath(); ctx.moveTo(0, selectionZoneTop); ctx.lineTo(width, selectionZoneTop);
+                ctx.strokeStyle = '#b19cd9'; ctx.lineWidth = 1; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
             }
         }
 
@@ -711,30 +682,24 @@
             for (let i = pulses.length - 1; i >= 0; i--) {
                 let p = pulses[i];
                 ctx.shadowBlur = 15 * p.life; ctx.shadowColor = p.color; ctx.strokeStyle = `rgba(255, 255, 255, ${p.life})`; ctx.lineWidth = p.w ? p.w : 3;
-                ctx.beginPath(); ctx.moveTo(0, p.y);
-                for (let x = 0; x <= width; x += 30) { ctx.lineTo(x, p.y + (Math.random() - 0.5) * 10 * p.life); }
-                ctx.lineTo(width, p.y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(p.x, 0);
+                for (let y = 0; y <= height; y += 30) { ctx.lineTo(p.x + (Math.random() - 0.5) * 10 * p.life, y); }
+                ctx.lineTo(p.x, height); ctx.stroke();
                 ctx.shadowBlur = 0; p.life -= 0.04; if (p.life <= 0) pulses.splice(i, 1);
             }
         }
 
         function drawSlide() {
-            let x1 = slideState.xTop; let x2 = slideState.xBottom;
-            const barWidth = 20;
+            let y = slideState.y;
+            const barHeight = 20;
             const darkBlue = 'rgba(0, 32, 128, 0.85)'; const lightBlue = 'rgba(30, 60, 180, 0.8)';
 
             ctx.save();
-            ctx.beginPath();
-            ctx.moveTo(x1 - barWidth/2, 0); ctx.lineTo(x1 + barWidth/2, 0);
-            ctx.lineTo(x2 + barWidth/2, height); ctx.lineTo(x2 - barWidth/2, height);
-            ctx.closePath(); ctx.fillStyle = darkBlue; ctx.fill();
-
-            ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x2, height);
-            ctx.strokeStyle = lightBlue; ctx.lineWidth = 4; ctx.stroke();
+            ctx.fillStyle = darkBlue; ctx.fillRect(0, y - barHeight/2, width, barHeight);
+            ctx.fillStyle = lightBlue; ctx.fillRect(0, y - 1, width, 3);
             
             ctx.fillStyle = isHarmonicsMode ? '#b19cd9' : '#f00'; 
-            for (let t of activeTouches.values()) { ctx.beginPath(); ctx.arc(t.x, t.y, 4, 0, Math.PI*2); ctx.fill(); }
-            if(isMouseDown) { ctx.beginPath(); ctx.arc(rawMouseX, lastMouseY - canvas.getBoundingClientRect().top, 4, 0, Math.PI*2); ctx.fill(); }
+            activeTouches.forEach(t => { ctx.beginPath(); ctx.arc(t.x, t.y, 15, 0, Math.PI*2); ctx.fill(); });
             ctx.restore();
         }
 
