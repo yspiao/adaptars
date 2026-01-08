@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ADAPTARS</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --surface: #111111;
+            --primary: #e5e5e5;
+            --dim: #444444;
+            --accent: #333333;
+            --snap-color: #00ff9d;
+            /* Warm Colors */
+            --warm-glow-1: #ffb700; /* Amber */
+            --warm-glow-2: #ff8c00; /* Dark Orange */
+            --warm-white: #fff5e0; 
+        }
+        body {
+            margin: 0;
+            background-color: var(--bg);
+            color: var(--primary);
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            /* Prevent pull-to-refresh on mobile */
+            overscroll-behavior: none;
+        }
+        
+        /* HEADER */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px; /* More padding for touch */
+            border-bottom: 1px solid var(--accent);
+            z-index: 10;
+            background: var(--bg);
+            height: 60px; /* Fixed height for consistency */
+            box-sizing: border-box;
+        }
+
+        /* LOGO: WARM BREATHING EFFECT */
+        @keyframes breathe {
+            0% { 
+                text-shadow: 0 0 5px rgba(255, 183, 0, 0.3), 0 0 10px rgba(255, 140, 0, 0.1); 
+                color: #ddd;
+                opacity: 0.8;
+            }
+            50% { 
+                text-shadow: 0 0 15px rgba(255, 183, 0, 0.6), 0 0 25px rgba(255, 140, 0, 0.4); 
+                color: var(--warm-white);
+                opacity: 1;
+            }
+            100% { 
+                text-shadow: 0 0 5px rgba(255, 183, 0, 0.3), 0 0 10px rgba(255, 140, 0, 0.1); 
+                color: #ddd;
+                opacity: 0.8;
+            }
+        }
+        .brand { 
+            font-weight: bold; 
+            letter-spacing: 4px; 
+            font-size: 20px; 
+            animation: breathe 5s ease-in-out infinite; /* Slow breathing */
+        }
+        
+        /* CONTROLS */
+        .controls { display: flex; gap: 20px; align-items: center; }
+        .mode-switch { display: flex; gap: 15px; }
+        
+        button {
+            background: none;
+            border: 1px solid var(--dim);
+            color: var(--dim);
+            padding: 10px 25px; /* Larger hit area */
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px; /* Larger font */
+            letter-spacing: 1px;
+            transition: all 0.2s;
+            border-radius: 4px;
+        }
+        button.active {
+            border-color: var(--primary);
+            color: var(--bg);
+            background: var(--primary);
+            font-weight: bold;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+        }
+        
+        #instrument-container {
+            flex-grow: 1;
+            position: relative;
+            cursor: crosshair;
+            touch-action: none; /* Disable default touch actions */
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .overlay-info { display: none; }
+        
+        #ratio-display {
+            font-size: 80px;
+            font-weight: bold;
+            color: rgba(255,255,255,0.05);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 0;
+            transition: color 0.1s;
+        }
+        #ratio-display.locked {
+            color: rgba(0, 255, 157, 0.1);
+        }
+        
+        #start-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(5,5,5,0.98);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            flex-direction: column;
+        }
+        .big-btn {
+            border: 1px solid white;
+            padding: 20px 40px;
+            font-size: 24px;
+            letter-spacing: 5px;
+            color: white;
+            transition: 0.3s;
+        }
+        .big-btn:hover { background: white; color: black; box-shadow: 0 0 20px rgba(255,255,255,0.5); }
+        .history-text { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="start-overlay">
+        <button class="big-btn" id="init-btn">INITIALIZE</button>
+    </div>
+
+    <header>
+        <div class="brand">ADAPTARS</div>
+        <div class="controls">
+            <div class="mode-switch">
+                <button id="btn-vector" class="active">I</button>
+                <button id="btn-slate">II</button>
+            </div>
+            <div style="font-size: 10px; color: #666; display: none;">DSP: <span id="dsp-status">OFFLINE</span></div>
+        </div>
+    </header>
+
+    <div id="instrument-container">
+        <div id="ratio-display"></div>
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+        // --- CONFIG ---
+        const SNAP_THRESHOLD_MAIN = 35; 
+        const SNAP_THRESHOLD_SUB = 15;  
+
+        // --- GLOBAL VARIABLES ---
+        let audioCtx;
+        let masterGain;
+        let canvas, ctx;
+        let width, height;
+        
+        // Touch/Mouse State
+        // For visual cursor (Ratio tracking), we use the "primary" or last moved pointer
+        let rawMouseX = 0;
+        let snappedMouseX = 0;
+        let mouseY = 0;
+        
+        let isMouseDown = false;
+        let lastTriggeredStringIndex = -1; // For mouse ONLY
+        let currentMode = 'VECTOR';
+        
+        let isSnapped = false;
+        let activeRatioIndex = -1;
+        let currentPitchRatio = 1.0;
+
+        let pulses = []; 
+        let activeVoices = [];
+        
+        // Multi-touch Map: { identifier: {x, y, lastStringIdx} }
+        let activeTouches = new Map();
+
+        // Scale Map
+        const scaleMap = [
+            { r: 1/1, label: '1/1', main: true }, { r: 81/80 }, { r: 33/32 }, { r: 21/20 }, { r: 16/15 }, { r: 12/11 }, 
+            { r: 11/10 }, { r: 10/9 }, { r: 9/8, label: '9/8', main: true }, { r: 8/7 }, { r: 7/6 }, { r: 32/27 }, 
+            { r: 6/5, label: '6/5', main: true }, { r: 11/9 }, { r: 5/4, label: '5/4', main: true }, { r: 14/11 }, 
+            { r: 9/7 }, { r: 21/16 }, { r: 4/3, label: '4/3', main: true }, { r: 27/20 }, { r: 11/8 }, { r: 7/5 }, 
+            { r: 10/7 }, { r: 16/11 }, { r: 40/27 }, { r: 3/2, label: '3/2', main: true }, { r: 32/21 }, { r: 14/9 }, 
+            { r: 11/7 }, { r: 8/5, label: '8/5', main: true }, { r: 18/11 }, { r: 5/3 }, { r: 27/16 }, { r: 12/7 }, 
+            { r: 7/4 }, { r: 16/9 }, { r: 9/5 }, { r: 20/11 }, { r: 11/6 }, { r: 15/8, label: '15/8', main: true }, 
+            { r: 40/21 }, { r: 64/33 }, { r: 160/81 }, { r: 2/1, label: '2/1', main: true }
+        ];
+
+        // Tuning
+        const vectorCourses = [
+            { note: 'Eb', freq: 98 * (4/5) },  
+            { note: 'G',  freq: 98 },          
+            { note: 'B',  freq: 98 * (5/4) }   
+        ];
+
+        const slateStrings = [];
+        const base = 98; 
+        [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.75, 4].forEach(i => slateStrings.push(base * i));
+
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            
+            document.getElementById('init-btn').addEventListener('click', initAudio);
+            document.getElementById('btn-vector').addEventListener('click', () => switchMode('VECTOR'));
+            document.getElementById('btn-slate').addEventListener('click', () => switchMode('SLATE'));
+            window.addEventListener('resize', resize);
+            
+            // Mouse
+            document.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            
+            // Multi-Touch
+            canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
+            canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
+            canvas.addEventListener('touchend', handleTouchEnd, {passive: false});
+            canvas.addEventListener('touchcancel', handleTouchEnd, {passive: false});
+
+            resize();
+        };
+
+        function resize() {
+            if (!canvas) return;
+            const container = document.getElementById('instrument-container');
+            width = canvas.width = container.clientWidth;
+            height = canvas.height = container.clientHeight;
+        }
+
+        function initAudio() {
+            if (audioCtx) return;
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.8; 
+            masterGain.connect(audioCtx.destination);
+            
+            document.getElementById('start-overlay').style.display = 'none';
+            
+            // Resume context if suspended (common on mobile)
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            
+            requestAnimationFrame(animate);
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            document.getElementById(mode === 'VECTOR' ? 'btn-vector' : 'btn-slate').classList.add('active');
+            pulses = [];
+            lastTriggeredStringIndex = -1;
+            activeVoices = []; 
+            activeTouches.clear();
+        }
+
+
+        // --- DSP UTILITIES ---
+        function clamp(x, a, b){ return Math.min(b, Math.max(a, x)); }
+        function centsToRatio(c){ return Math.pow(2, c/1200); }
+
+        function makePickNoiseBuffer(ctx, seconds=0.065){
+            const n = Math.max(32, Math.floor(ctx.sampleRate * seconds));
+            const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i=0;i<n;i++){
+                const env = Math.pow(1 - i/(n-1), 2.2);
+                d[i] = (Math.random()*2 - 1) * env;
+            }
+            return buf;
+        }
+
+
+        // --- DSP ENGINE ---
+        function pluckDoubleCourse(ctx, destination, baseFreq, currentRatio, opt={}){
+            const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.010, detune2_cents = 2.0, spread = 0.10 } = opt;
+            const t0 = ctx.currentTime;
+            
+            const f1 = baseFreq * currentRatio;
+
+            const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(220 + f1*0.22, 160, 900); body1.Q.value = 1.2; body1.gain.value = 3.8;
+            const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(520 + f1*0.35, 260, 1800); body2.Q.value = 1.3; body2.gain.value = 2.4;
+            const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(2500 + 12000*bright, 2000, 14000); lp.Q.value = 0.2;
+            const out = ctx.createGain(); out.gain.value = 1.0;
+            out.connect(body1); body1.connect(body2); body2.connect(lp); lp.connect(destination);
+
+            const pickBuf = makePickNoiseBuffer(ctx, 0.065);
+            let collectedOscs = []; 
+
+            function oneString(freqMult, startDelay, localAmp, localBright, detuneAmt){
+                const ts = t0 + startDelay;
+                const startF = f1 * freqMult;
+
+                const env = ctx.createGain();
+                env.gain.setValueAtTime(0.00001, ts);
+                env.gain.linearRampToValueAtTime(localAmp, ts + 0.010);
+                env.gain.exponentialRampToValueAtTime(0.0001, ts + 2.0);
+
+                const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = clamp(700 + startF*(6 + 18*localBright), 700, 16000); tone.Q.value = 0.22;
+                
+                const o1 = ctx.createOscillator(); o1.type = "triangle"; o1.frequency.value = startF;
+                const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = startF*2;
+                const o3 = ctx.createOscillator(); o3.type = "sine"; o3.frequency.value = startF*3;
+                
+                o1.freqMult = 1 * freqMult; 
+                o2.freqMult = 2 * freqMult;
+                o3.freqMult = 3 * freqMult;
+
+                const g1 = ctx.createGain(); g1.gain.value = 1.00;
+                const g2 = ctx.createGain(); g2.gain.value = 0.30;
+                const g3 = ctx.createGain(); g3.gain.value = 0.16;
+                
+                o1.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
+                o2.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
+                o3.detune.value = (Math.random()*2-1)*1.5 + detuneAmt;
+
+                const n = ctx.createBufferSource(); n.buffer = pickBuf;
+                const nGain = ctx.createGain(); nGain.gain.value = localAmp * (0.35 + 0.9*noise);
+                const nBP = ctx.createBiquadFilter(); nBP.type = "bandpass"; nBP.frequency.value = clamp(startF*2.8, 180, 9000); nBP.Q.value = 0.8;
+
+                o1.connect(g1); g1.connect(tone); o2.connect(g2); g2.connect(tone); o3.connect(g3); g3.connect(tone);
+                n.connect(nBP); nBP.connect(nGain); nGain.connect(tone);
+                tone.connect(env); env.connect(out);
+
+                o1.start(ts); o2.start(ts); o3.start(ts); n.start(ts); n.stop(ts + 0.070);
+                const stopAt = ts + 2.1;
+                o1.stop(stopAt); o2.stop(stopAt); o3.stop(stopAt);
+                
+                collectedOscs.push(o1, o2, o3);
+            }
+
+            oneString(1.0, 0.0, amp, bright, 0);
+            const detRatio = centsToRatio((Math.random()*2-1) * detune2_cents);
+            oneString(2.0 * detRatio, clamp(delay2, 0.0, 0.03), amp * 0.9, bright * 0.92, detune2_cents);
+
+            const stopTime = t0 + 2.1;
+            const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stopTime: stopTime, type: 'G1' };
+            activeVoices.push(voiceObj);
+            
+            setTimeout(() => {
+                const idx = activeVoices.indexOf(voiceObj);
+                if(idx > -1) activeVoices.splice(idx, 1);
+            }, 2200);
+        }
+
+        function pluckGuitarIISlide(ctx, destination, baseFreq, startRatio, opt={}){
+             const { dur = 3.5, amp = 0.25, bright = 0.75, noise = 0.1 } = opt;
+            const t0 = ctx.currentTime;
+            const startFreq = baseFreq * startRatio;
+
+            const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(220 + startFreq*0.22, 160, 900); body1.Q.value = 1.2; body1.gain.value = 3.8;
+            const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(520 + startFreq*0.35, 260, 1800); body2.Q.value = 1.3; body2.gain.value = 2.4;
+            const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(2500 + 12000*bright, 2000, 14000); lp.Q.value = 0.2;
+            const out = ctx.createGain(); out.gain.value = 1.0;
+            out.connect(body1); body1.connect(body2); body2.connect(lp); lp.connect(destination);
+
+            const env = ctx.createGain();
+            env.gain.setValueAtTime(0.00001, t0);
+            env.gain.linearRampToValueAtTime(amp, t0 + 0.02);
+            env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+            const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = clamp(700 + startFreq*12, 700, 16000); tone.Q.value = 0.2;
+
+            const o1 = ctx.createOscillator(); o1.type = "triangle"; o1.frequency.value = startFreq; o1.freqMult = 1;
+            const g1 = ctx.createGain(); g1.gain.value = 1.00;
+            const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = startFreq*2; o2.freqMult = 2;
+            const g2 = ctx.createGain(); g2.gain.value = 0.35;
+            const o3 = ctx.createOscillator(); o3.type = "sine"; o3.frequency.value = startFreq*3; o3.freqMult = 3;
+            const g3 = ctx.createGain(); g3.gain.value = 0.2;
+
+            o1.connect(g1); g1.connect(tone); o2.connect(g2); g2.connect(tone); o3.connect(g3); g3.connect(tone);
+            tone.connect(env); env.connect(out);
+
+            const pickBuf = makePickNoiseBuffer(ctx, 0.05);
+            const n = ctx.createBufferSource(); n.buffer = pickBuf;
+            const nGain = ctx.createGain(); nGain.gain.value = amp * 0.5;
+            const nBP = ctx.createBiquadFilter(); nBP.type = "bandpass"; nBP.frequency.value = startFreq*2;
+            n.connect(nBP); nBP.connect(nGain); nGain.connect(tone);
+            n.start(t0); n.stop(t0 + 0.06);
+
+            o1.start(t0); o2.start(t0); o3.start(t0);
+            const stopTime = t0 + dur + 0.1;
+            o1.stop(stopTime); o2.stop(stopTime); o3.stop(stopTime);
+
+            const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stopTime: stopTime, type: 'G2' };
+            activeVoices.push(voiceObj);
+            
+            setTimeout(() => {
+                const idx = activeVoices.indexOf(voiceObj);
+                if(idx > -1) activeVoices.splice(idx, 1);
+            }, (dur + 0.2) * 1000);
+        }
+
+        // --- WRAPPERS ---
+
+        function playGuitarICourse(baseFreq, currentRatio) {
+            if (!audioCtx) return;
+            pluckDoubleCourse(audioCtx, masterGain, baseFreq, currentRatio, {
+                dur: 2.5, amp: 0.22, bright: 0.7, noise: 0.15,
+                delay2: 0.012, detune2_cents: 2.5
+            });
+        }
+
+        function playGuitarIIString(baseFreq, ratio) {
+            if (!audioCtx) return;
+            pluckGuitarIISlide(audioCtx, masterGain, baseFreq, ratio, {
+                dur: 4.0, amp: 0.3, bright: 0.8
+            });
+        }
+
+
+        // --- INPUT LOGIC ---
+
+        function calculateRatio(px) {
+            let closestDist = Infinity;
+            let closestIdx = -1;
+            
+            scaleMap.forEach((item, index) => {
+                const targetX = (index / (scaleMap.length - 1)) * width;
+                const dist = Math.abs(px - targetX);
+                const threshold = item.main ? SNAP_THRESHOLD_MAIN : SNAP_THRESHOLD_SUB;
+                
+                if (dist < threshold && dist < closestDist) {
+                    closestDist = dist;
+                    closestIdx = index;
+                }
+            });
+
+            // Return object for consistent state update
+            if (closestIdx !== -1) {
+                return { 
+                    ratio: scaleMap[closestIdx].r, 
+                    isSnapped: true, 
+                    idx: closestIdx, 
+                    snappedX: (closestIdx / (scaleMap.length - 1)) * width,
+                    display: scaleMap[closestIdx].label || formatRatio(scaleMap[closestIdx].r)
+                };
+            } else {
+                const ratioIdxFloat = (px / width) * (scaleMap.length - 1);
+                const idxFloor = Math.floor(ratioIdxFloat);
+                const r1 = scaleMap[Math.max(0, idxFloor)];
+                const r2 = scaleMap[Math.min(scaleMap.length-1, idxFloor+1)];
+                const pct = ratioIdxFloat - idxFloor;
+                let r = 1.0;
+                if(r1 && r2) r = r1.r + (r2.r - r1.r) * pct;
+                
+                return { 
+                    ratio: r, 
+                    isSnapped: false, 
+                    idx: -1, 
+                    snappedX: px,
+                    display: ""
+                };
+            }
+        }
+
+        function updateGlobalCursor(px, py) {
+            const res = calculateRatio(px);
+            currentPitchRatio = res.ratio;
+            isSnapped = res.isSnapped;
+            activeRatioIndex = res.idx;
+            snappedMouseX = res.snappedX;
+            rawMouseX = px;
+            mouseY = py;
+            
+            const ratioDisplay = document.getElementById('ratio-display');
+            ratioDisplay.innerText = res.display;
+            if (res.isSnapped) ratioDisplay.classList.add('locked');
+            else ratioDisplay.classList.remove('locked');
+        }
+
+        // Mouse Handlers
+        function handleMouseDown(e) {
+            isMouseDown = true;
+            updateGlobalCursor(e.clientX, e.clientY); // Ensure pitch is correct before trigger
+            checkTrigger(e.clientY, -1); // -1 forces trigger check against global last
+        }
+
+        function handleMouseUp() {
+            isMouseDown = false;
+            lastTriggeredStringIndex = -1; 
+        }
+
+        function handleMouseMove(e) {
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
+            const px = e.clientX - rect.left;
+            const py = e.clientY - rect.top;
+            
+            updateGlobalCursor(px, py);
+
+            // Slide Effect (Mouse Down)
+            if (isMouseDown && activeVoices.length > 0) {
+                applySlideToVoices(currentPitchRatio);
+            }
+
+            // Strumming
+            if (isMouseDown) {
+                checkTrigger(py, -1); 
+            }
+        }
+
+        // Touch Handlers
+        function handleTouchStart(e) {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                const px = t.clientX - rect.left;
+                const py = t.clientY - rect.top;
+                
+                // Track touch
+                activeTouches.set(t.identifier, { x: px, y: py, lastStr: -1 });
+                
+                // Update global cursor to the most recent touch (for slide logic)
+                updateGlobalCursor(px, py);
+                
+                // Trigger sound
+                checkTrigger(py, t.identifier);
+            }
+        }
+
+        function handleTouchMove(e) {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            
+            // Check slide need
+            // If dragging X, update global pitch
+            // We use the *first* active touch as the "Pitch Master" if multiple are present, 
+            // or just the moving one. To simplify: The last moved touch updates global pitch.
+            
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                const px = t.clientX - rect.left;
+                const py = t.clientY - rect.top;
+                
+                const touchData = activeTouches.get(t.identifier);
+                if (touchData) {
+                    touchData.x = px;
+                    touchData.y = py;
+                }
+
+                // Update pitch
+                updateGlobalCursor(px, py);
+                
+                // Apply Slide
+                if (activeVoices.length > 0) {
+                    applySlideToVoices(currentPitchRatio);
+                }
+
+                // Check Strum
+                checkTrigger(py, t.identifier);
+            }
+        }
+
+        function handleTouchEnd(e) {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                activeTouches.delete(e.changedTouches[i].identifier);
+            }
+        }
+
+        function applySlideToVoices(ratio) {
+            const t = audioCtx.currentTime;
+            activeVoices.forEach(voice => {
+                voice.oscList.forEach(osc => {
+                    const newFreq = voice.baseFreq * osc.freqMult * ratio;
+                    osc.frequency.setTargetAtTime(newFreq, t, 0.05);
+                });
+            });
+        }
+
+        function checkTrigger(y, touchId) {
+            // Retrieve last string index for this specific input source
+            // If touchId is -1, use global mouse var. If >=0, use Map.
+            let lastIdx = (touchId === -1) ? lastTriggeredStringIndex : (activeTouches.get(touchId)?.lastStr ?? -1);
+
+            if (currentMode === 'VECTOR') {
+                const spacing = height / 3;
+                const courseIdx = Math.floor(y / spacing);
+                
+                if (courseIdx >= 0 && courseIdx < 3 && courseIdx !== lastIdx) {
+                    const baseFreq = vectorCourses[courseIdx].freq;
+                    playGuitarICourse(baseFreq, currentPitchRatio);
+                    
+                    const visualY = (courseIdx * spacing) + (spacing / 2);
+                    pulses.push({ y: visualY - 5, life: 1, color: '#fff', w: 2 });
+                    pulses.push({ y: visualY + 5, life: 1, color: '#fff', w: 2 });
+                    
+                    // Update tracker
+                    if (touchId === -1) lastTriggeredStringIndex = courseIdx;
+                    else if (activeTouches.has(touchId)) activeTouches.get(touchId).lastStr = courseIdx;
+                }
+            } else {
+                const spacing = height / 10;
+                const stringIdx = Math.floor(y / spacing);
+                
+                if (stringIdx >= 0 && stringIdx < 10 && stringIdx !== lastIdx) {
+                    const baseFreq = slateStrings[stringIdx];
+                    playGuitarIIString(baseFreq, currentPitchRatio);
+                    
+                    const visualY = (stringIdx * spacing) + (spacing / 2);
+                    pulses.push({ y: visualY, life: 1, color: '#aaa', w: 8 });
+                    
+                    if (touchId === -1) lastTriggeredStringIndex = stringIdx;
+                    else if (activeTouches.has(touchId)) activeTouches.get(touchId).lastStr = stringIdx;
+                }
+            }
+        }
+
+        function formatRatio(r) { return r ? r.toFixed(2) : ""; }
+
+
+        // --- RENDERING ---
+
+        function drawGrid() {
+            const step = width / (scaleMap.length - 1);
+            scaleMap.forEach((item, index) => {
+                const x = index * step;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                
+                if (isSnapped && activeRatioIndex === index) {
+                    ctx.strokeStyle = 'rgba(0, 255, 157, 0.8)';
+                    ctx.lineWidth = 2;
+                } else if (item.main) {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                    ctx.lineWidth = 1;
+                    // Draw Ratio Labels at bottom
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.font = '10px Courier New';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(item.label, x + 4, height - 10);
+                } else {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+                    ctx.lineWidth = 1;
+                }
+                ctx.stroke();
+            });
+        }
+
+        function drawStrings() {
+            if (currentMode === 'VECTOR') {
+                const count = 3;
+                const spacing = height / count;
+                for (let i = 0; i < count; i++) {
+                    const centerY = (i * spacing) + (spacing / 2);
+                    // Minimal highlight check
+                    let highlight = false;
+                    if (isMouseDown && Math.floor(mouseY/spacing) === i) highlight = true;
+                    // Check touches
+                    for (let t of activeTouches.values()) {
+                        if (Math.floor(t.y/spacing) === i) highlight = true;
+                    }
+
+                    if (highlight) {
+                        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+                        ctx.fillRect(0, i*spacing, width, spacing);
+                    }
+                    ctx.beginPath(); ctx.moveTo(0, centerY - 5); ctx.lineTo(width, centerY - 5); ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, centerY + 5); ctx.lineTo(width, centerY + 5); ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
+                }
+            } else {
+                const count = 10;
+                const spacing = height / count;
+                for (let i = 0; i < count; i++) {
+                    const y = (i * spacing) + (spacing / 2);
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.stroke();
+                }
+            }
+        }
+
+        function drawPulses() {
+            for (let i = pulses.length - 1; i >= 0; i--) {
+                let p = pulses[i];
+                
+                ctx.shadowBlur = 15 * p.life; ctx.shadowColor = p.color; ctx.strokeStyle = `rgba(255, 255, 255, ${p.life})`; ctx.lineWidth = p.w ? p.w : 3;
+                
+                ctx.beginPath();
+                ctx.moveTo(0, p.y);
+                for (let x = 0; x <= width; x += 30) {
+                    let jitter = (Math.random() - 0.5) * 10 * p.life;
+                    ctx.lineTo(x, p.y + jitter);
+                }
+                ctx.lineTo(width, p.y);
+                ctx.stroke();
+                
+                ctx.shadowBlur = 0; p.life -= 0.04; 
+                if (p.life <= 0) pulses.splice(i, 1);
+            }
+        }
+
+        function drawCursor() {
+            // Draw Main Cursor (from last active input)
+            const x = snappedMouseX;
+            const y = mouseY;
+
+            if (currentMode === 'VECTOR') {
+                ctx.fillStyle = isSnapped ? '#00ff9d' : '#fff';
+                ctx.beginPath(); ctx.arc(x, y, isSnapped ? 6 : 4, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = isSnapped ? 'rgba(0, 255, 157, 0.5)' : 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+            } else {
+                const barWidth = 20;
+                ctx.fillStyle = isSnapped ? 'rgba(0, 50, 30, 0.8)' : 'rgba(80, 80, 80, 0.8)';
+                ctx.fillRect(x - barWidth/2, 0, barWidth, height);
+                ctx.fillStyle = isSnapped ? '#00ff9d' : 'rgba(200, 200, 200, 0.5)';
+                ctx.fillRect(x - 1, 0, 3, height);
+                ctx.fillStyle = '#f00';
+                ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
+            }
+
+            // Draw extra touch cursors (simple dots)
+            if (activeTouches.size > 0) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                for (let t of activeTouches.values()) {
+                    if (Math.abs(t.x - x) > 5 || Math.abs(t.y - y) > 5) { // Don't double draw main
+                        ctx.beginPath(); ctx.arc(t.x, t.y, 4, 0, Math.PI*2); ctx.fill();
+                    }
+                }
+            }
+        }
+
+        function animate() {
+            if (!ctx) return;
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, width, height);
+            drawGrid();
+            drawStrings();
+            drawPulses();
+            drawCursor();
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
