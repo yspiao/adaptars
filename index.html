@@ -99,7 +99,7 @@
     </div>
 
     <script>
-        // --- 1. CONFIGURATION (FIXED: Added missing constants) ---
+        // --- 1. CONFIGURATION ---
         const SNAP_THRESHOLD_MAIN = 35; 
         const SNAP_THRESHOLD_SUB = 15;  
 
@@ -231,6 +231,7 @@
             const t0 = ctx.currentTime;
             const f1 = baseFreq * startRatio;
 
+            // Simple Warm Body Filters
             const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(220 + f1*0.22, 160, 900); body1.Q.value = 1.2; body1.gain.value = 3.8;
             const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(520 + f1*0.35, 260, 1800); body2.Q.value = 1.3; body2.gain.value = 2.4;
             const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(2500 + 12000*bright, 2000, 14000); lp.Q.value = 0.2;
@@ -323,12 +324,13 @@
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, (dur + 0.2) * 1000);
         }
 
-        // HARMONICS ENGINE (Stable)
+        // STABLE HARMONICS ENGINE (INDEPENDENT FLUCTUATION)
+        // Returns object with control over individual partial gains
         function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringY) {
             const t0 = ctx.currentTime;
             const f = baseFreq * startRatio; 
 
-            // Natural Series: 1, 2, 3, 4
+            // Natural Harmonic Series: 1, 2, 3, 4
             const o1 = ctx.createOscillator(); o1.type = "sine"; o1.freqMult = 1; 
             const o2 = ctx.createOscillator(); o2.type = "sine"; o2.freqMult = 2; 
             const o3 = ctx.createOscillator(); o3.type = "sine"; o3.freqMult = 3; 
@@ -336,12 +338,14 @@
             
             o1.frequency.value = f; o2.frequency.value = f*2; o3.frequency.value = f*3; o4.frequency.value = f*4;
 
-            // Natural Volume Falloff (1/n)
+            // Individual Gains for Fluctuation
+            // Base levels: 1.0, 0.5, 0.33, 0.25
             const g1 = ctx.createGain(); g1.gain.value = 1.0;
             const g2 = ctx.createGain(); g2.gain.value = 0.5;
             const g3 = ctx.createGain(); g3.gain.value = 0.33;
             const g4 = ctx.createGain(); g4.gain.value = 0.25;
 
+            // Master Gain controlled by bow velocity
             const masterGainNode = ctx.createGain();
             masterGainNode.gain.value = 0; 
 
@@ -354,15 +358,18 @@
 
             o1.start(t0); o2.start(t0); o3.start(t0); o4.start(t0);
 
+            // Active voice object with extended controls
             const voiceObj = { 
                 baseFreq: baseFreq, 
                 oscList: [o1, o2, o3, o4], 
+                partialGains: [g1, g2, g3, g4],
+                baseGainValues: [1.0, 0.5, 0.33, 0.25], // Reference for fluctuation
                 type: 'HARM',
                 gainNode: masterGainNode,
                 stringY: stringY,
                 kill: function() {
                     const t = ctx.currentTime;
-                    this.gainNode.gain.setTargetAtTime(0, t, 0.2); 
+                    this.gainNode.gain.setTargetAtTime(0, t, 0.2); // Smooth fade
                     setTimeout(() => {
                         o1.stop(); o2.stop(); o3.stop(); o4.stop();
                         const idx = activeVoices.indexOf(this);
@@ -406,7 +413,7 @@
                 }
             });
 
-            // GHOST MODE FIX: If no string selected, activate all
+            // Ghost Mode
             const isGhostMode = (activeStringIndices.size === 0);
             
             const r = getHarmonicRatio();
@@ -424,13 +431,23 @@
                         bowedVoices.set(i, voice);
                     }
                     
-                    const fluctuation = (Math.random() - 0.5) * (speed * 0.02); 
-                    const vol = Math.min(speed * 0.015 + 0.05, 0.6) + fluctuation;
+                    // 1. MASTER VOLUME (Velocity)
+                    const vol = Math.min(speed * 0.015 + 0.05, 0.6);
+                    voice.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
                     
-                    voice.gainNode.gain.setTargetAtTime(Math.max(0, vol), audioCtx.currentTime, 0.05);
-                    
+                    // 2. INDEPENDENT PARTIAL FLUCTUATION (Shimmer)
+                    // Fluctuate each partial around its base value
+                    voice.partialGains.forEach((pg, idx) => {
+                        const base = voice.baseGainValues[idx];
+                        // +/- 15% fluctuation
+                        const jitter = (Math.random() - 0.5) * (base * 0.3); 
+                        const target = Math.max(0, base + jitter);
+                        pg.gain.setTargetAtTime(target, audioCtx.currentTime, 0.1);
+                    });
+
+                    // Pitch update
                     voice.oscList.forEach(osc => {
-                        const detune = (Math.random() - 0.5) * 1.5; 
+                        const detune = (Math.random() - 0.5) * 2.0; 
                         osc.detune.value = detune;
                         osc.frequency.setTargetAtTime(voice.baseFreq * osc.freqMult * r, audioCtx.currentTime, 0.02);
                     });
@@ -589,7 +606,7 @@
             });
         }
 
-        // --- 8. EVENT HANDLERS ---
+        // --- 8. HANDLERS ---
 
         function handleMouseDown(e) {
             isMouseDown = true;
