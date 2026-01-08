@@ -13,9 +13,10 @@
             --accent: #333333;
             
             /* Visual Colors */
-            --snap-color: #888888; /* Grey Text */
+            --snap-color: #888888; 
             --slide-color: #002080; /* Dark Klein Blue */
             --glow-color: #ffffff; 
+            --harmonics-active: #b19cd9; /* Pastel Purple for Harmonics Mode */
         }
         
         body {
@@ -45,7 +46,7 @@
             flex-shrink: 0; 
         }
 
-        /* LOGO: WHITE BREATHING EFFECT */
+        /* LOGO */
         @keyframes breathe {
             0% { text-shadow: 0 0 5px rgba(255, 255, 255, 0.2); color: #888; opacity: 0.7; }
             50% { text-shadow: 0 0 15px rgba(255, 255, 255, 0.6), 0 0 25px rgba(255, 255, 255, 0.3); color: #fff; opacity: 1; }
@@ -57,26 +58,36 @@
         }
         
         /* CONTROLS */
-        .controls { display: flex; gap: 20px; align-items: center; }
-        .mode-switch { display: flex; gap: 15px; }
+        .controls { display: flex; gap: 15px; align-items: center; }
+        .mode-switch { display: flex; gap: 10px; }
         
         button {
             background: none; border: 1px solid var(--dim); color: var(--dim);
-            padding: 8px 20px; cursor: pointer; font-family: inherit; font-size: 14px;
-            letter-spacing: 1px; transition: all 0.2s; border-radius: 4px; min-width: 60px;
+            padding: 8px 0; width: 50px; cursor: pointer; font-family: inherit; font-size: 14px;
+            letter-spacing: 1px; transition: all 0.2s; border-radius: 4px;
+            text-align: center;
         }
         button.active {
             border-color: var(--primary); color: var(--bg); background: var(--primary);
             font-weight: bold; box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
         
+        /* Harmonics Toggle Style */
+        #btn-harm {
+            font-size: 12px; border-color: #555; color: #777; width: 40px;
+        }
+        #btn-harm.active {
+            background: transparent; border-color: var(--harmonics-active); 
+            color: var(--harmonics-active); box-shadow: 0 0 8px var(--harmonics-active);
+        }
+
         #instrument-container {
             flex-grow: 1; position: relative; cursor: crosshair; touch-action: none;
             width: 100%; height: 100%; overflow: hidden;
         }
         canvas { display: block; width: 100%; height: 100%; }
 
-        /* Central Big Display - GREY */
+        /* Central Display */
         #ratio-display {
             font-size: 15vw; font-weight: bold; color: rgba(255,255,255,0.03); 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -108,6 +119,7 @@
                 <button id="btn-vector" class="active">I</button>
                 <button id="btn-slate">II</button>
             </div>
+            <button id="btn-harm">H</button>
         </div>
     </header>
 
@@ -130,25 +142,20 @@
         // Input State
         let isMouseDown = false;
         let currentMode = 'VECTOR';
+        let isHarmonicsMode = false; // NEW MODE FLAG
         let pulses = []; 
-        let rawMouseX = 0; // Track mouse X even when not clicking
+        let rawMouseX = 0; 
+        let lastMouseY = 0; // For calculating velocity
         
-        // Voice Tracking: { baseFreq, oscList, stopTime, stringY }
         let activeVoices = [];
-        // Touch Map: { id: {x, y, lastStr} }
-        let activeTouches = new Map();
+        let activeTouches = new Map(); // { id: {x, y, lastStr, lastY} }
 
-        // SLIDE PHYSICS STATE
+        // SLIDE STATE
         let slideState = {
-            active: false,
-            xTop: 0,    
-            xBottom: 0, 
-            isVertical: true, 
-            displayRatio: 1.0,
-            isSnapped: false
+            active: false, xTop: 0, xBottom: 0, isVertical: true, displayRatio: 1.0, isSnapped: false
         };
 
-        // Scale Map (Partch 43)
+        // Scale Map
         const scaleMap = [
             { r: 1/1, label: '1/1', main: true }, { r: 81/80 }, { r: 33/32 }, { r: 21/20 }, { r: 16/15 }, { r: 12/11 }, 
             { r: 11/10 }, { r: 10/9 }, { r: 9/8, label: '9/8', main: true }, { r: 8/7 }, { r: 7/6 }, { r: 32/27 }, 
@@ -161,9 +168,7 @@
         ];
 
         // Tuning
-        const vectorCourses = [
-            { note: 'Eb', freq: 98 * (4/5) }, { note: 'G',  freq: 98 }, { note: 'B',  freq: 98 * (5/4) }   
-        ];
+        const vectorCourses = [{ note: 'Eb', freq: 98 * 0.8 }, { note: 'G',  freq: 98 }, { note: 'B',  freq: 98 * 1.25 }];
         const slateStrings = [];
         const base = 98; 
         [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.75, 4].forEach(i => slateStrings.push(base * i));
@@ -177,6 +182,8 @@
             document.getElementById('init-btn').addEventListener('click', initAudio);
             document.getElementById('btn-vector').addEventListener('click', () => switchMode('VECTOR'));
             document.getElementById('btn-slate').addEventListener('click', () => switchMode('SLATE'));
+            document.getElementById('btn-harm').addEventListener('click', toggleHarmonics);
+            
             window.addEventListener('resize', resize);
             
             // Mouse
@@ -197,7 +204,6 @@
             const container = document.getElementById('instrument-container');
             width = canvas.width = container.clientWidth;
             height = canvas.height = container.clientHeight;
-            // Initialize rawMouseX to center to prevent undefined slide drawing
             if(rawMouseX === 0) rawMouseX = width / 2;
         }
 
@@ -215,12 +221,29 @@
 
         function switchMode(mode) {
             currentMode = mode;
-            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-            document.getElementById(mode === 'VECTOR' ? 'btn-vector' : 'btn-slate').classList.add('active');
+            document.getElementById('btn-vector').className = mode === 'VECTOR' ? 'active' : '';
+            document.getElementById('btn-slate').className = mode === 'SLATE' ? 'active' : '';
+            
+            // Auto-disable harmonics when switching to Guitar I (as requested implicitly "add mode to guitar II")
+            if (mode === 'VECTOR') {
+                isHarmonicsMode = false;
+                document.getElementById('btn-harm').classList.remove('active');
+                document.getElementById('btn-harm').style.display = 'none'; // Hide for Guitar I
+            } else {
+                document.getElementById('btn-harm').style.display = 'block'; // Show for Guitar II
+            }
+            
             pulses = [];
             activeVoices = []; 
             activeTouches.clear();
             slideState.active = false;
+        }
+
+        function toggleHarmonics() {
+            isHarmonicsMode = !isHarmonicsMode;
+            const btn = document.getElementById('btn-harm');
+            if (isHarmonicsMode) btn.classList.add('active');
+            else btn.classList.remove('active');
         }
 
 
@@ -235,82 +258,76 @@
             return buf;
         }
 
-        // --- GUITAR I: ENHANCED POLYPHONY (KEPT) ---
+        // --- GUITAR I DSP: REVERTED TO "GOOD" VERSION (TRIANGLE/SINE) ---
         function pluckDoubleCourse(ctx, destination, baseFreq, startRatio, stringY, opt={}){
-            const { dur = 2.5, amp = 0.22, bright = 0.7, noise = 0.12, delay2 = 0.015, detune2_cents = 3.5 } = opt;
+            const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.010, detune2_cents = 2.0 } = opt;
             const t0 = ctx.currentTime;
-            const startF = baseFreq * startRatio; 
+            const f1 = baseFreq * startRatio;
 
-            // Complex Body Resonator
-            const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(200 + startF*0.2, 150, 800); body1.Q.value = 1.0; body1.gain.value = 3.0;
-            const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(500 + startF*0.4, 250, 1500); body2.Q.value = 1.2; body2.gain.value = 2.0;
-            const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(3000 + 10000*bright, 2000, 16000); lp.Q.value = 0.3;
-            
+            // Simple Body Filters (Warm)
+            const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(220 + f1*0.22, 160, 900); body1.Q.value = 1.2; body1.gain.value = 3.8;
+            const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(520 + f1*0.35, 260, 1800); body2.Q.value = 1.3; body2.gain.value = 2.4;
+            const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(2500 + 12000*bright, 2000, 14000); lp.Q.value = 0.2;
             const out = ctx.createGain(); out.gain.value = 1.0;
             out.connect(body1); body1.connect(body2); body2.connect(lp); lp.connect(destination);
 
-            const pickBuf = makePickNoiseBuffer(ctx, 0.06);
-            let collectedOscs = []; 
+            const pickBuf = makePickNoiseBuffer(ctx, 0.065);
+            let collectedOscs = [];
 
-            function oneString(freqMult, startDelay, localAmp, detuneAmt){
+            function oneString(freqMult, startDelay, localAmp, localBright, detuneAmt){
                 const ts = t0 + startDelay;
-                const f = startF * freqMult;
+                const startF = f1 * freqMult;
 
                 const env = ctx.createGain();
                 env.gain.setValueAtTime(0.00001, ts);
-                env.gain.linearRampToValueAtTime(localAmp, ts + 0.008); 
-                env.gain.exponentialRampToValueAtTime(0.0001, ts + 2.2); 
+                env.gain.linearRampToValueAtTime(localAmp, ts + 0.010);
+                env.gain.exponentialRampToValueAtTime(0.0001, ts + 2.0);
 
-                const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; 
-                tone.frequency.setValueAtTime(clamp(800 + f*8, 800, 12000), ts);
-                tone.Q.value = 0.1;
-
-                const o1 = ctx.createOscillator(); o1.type = "sawtooth"; 
-                const o2 = ctx.createOscillator(); o2.type = "triangle"; 
+                const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = clamp(700 + startF*(6 + 18*localBright), 700, 16000); tone.Q.value = 0.22;
                 
-                o1.freqMult = 1 * freqMult; o1.detuneBase = detuneAmt;
-                o2.freqMult = 1 * freqMult; o2.detuneBase = detuneAmt + 2; 
+                const o1 = ctx.createOscillator(); o1.type = "triangle"; o1.frequency.value = startF;
+                const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = startF*2;
+                const o3 = ctx.createOscillator(); o3.type = "sine"; o3.frequency.value = startF*3;
+                
+                o1.freqMult = 1 * freqMult; o2.freqMult = 2 * freqMult; o3.freqMult = 3 * freqMult;
+                o1.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
+                o2.detune.value = (Math.random()*2-1)*1.5 + detuneAmt; 
+                o3.detune.value = (Math.random()*2-1)*1.5 + detuneAmt;
 
-                o1.detune.value = detuneAmt; o2.detune.value = detuneAmt + 2;
-                o1.frequency.value = f; o2.frequency.value = f;
+                const g1 = ctx.createGain(); g1.gain.value = 1.0;
+                const g2 = ctx.createGain(); g2.gain.value = 0.3;
+                const g3 = ctx.createGain(); g3.gain.value = 0.16;
 
-                const mix = ctx.createGain(); mix.gain.value = 0.5;
                 const n = ctx.createBufferSource(); n.buffer = pickBuf;
-                const nG = ctx.createGain(); nG.gain.value = localAmp * noise * 2;
-                
-                o1.connect(mix); o2.connect(mix); n.connect(nG);
-                mix.connect(tone); nG.connect(tone);
+                const nGain = ctx.createGain(); nGain.gain.value = localAmp * (0.35 + 0.9*noise);
+                const nBP = ctx.createBiquadFilter(); nBP.type = "bandpass"; nBP.frequency.value = clamp(startF*2.8, 180, 9000); nBP.Q.value = 0.8;
+
+                o1.connect(g1); g1.connect(tone); o2.connect(g2); g2.connect(tone); o3.connect(g3); g3.connect(tone);
+                n.connect(nBP); nBP.connect(nGain); nGain.connect(tone);
                 tone.connect(env); env.connect(out);
 
-                o1.start(ts); o2.start(ts); n.start(ts); n.stop(ts + 0.06);
-                const stopAt = ts + 2.3;
-                o1.stop(stopAt); o2.stop(stopAt);
-                
-                collectedOscs.push(o1, o2);
+                o1.start(ts); o2.start(ts); o3.start(ts); n.start(ts); n.stop(ts + 0.070);
+                const stopAt = ts + 2.1;
+                o1.stop(stopAt); o2.stop(stopAt); o3.stop(stopAt);
+                collectedOscs.push(o1, o2, o3);
             }
 
-            oneString(1.0, 0.0, amp, 0);
-            oneString(2.0, delay2, amp * 0.85, detune2_cents);
+            oneString(1.0, 0.0, amp, bright, 0);
+            const detRatio = centsToRatio((Math.random()*2-1) * detune2_cents);
+            oneString(2.0 * detRatio, clamp(delay2, 0.0, 0.03), amp * 0.9, bright * 0.92, detune2_cents);
 
-            const stopTime = t0 + 2.3;
-            const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stopTime: stopTime, stringY: stringY };
+            const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stringY: stringY, type: 'G1' };
             activeVoices.push(voiceObj);
-            
-            setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, 2400);
+            setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, 2200);
         }
 
-        // --- GUITAR II DSP: REVERTED TO SIMPLE (Cleaner Slide) ---
+        // --- GUITAR II DSP: NORMAL ---
         function pluckGuitarIISlide(ctx, destination, baseFreq, startRatio, stringY, opt={}){
              const { dur = 3.5, amp = 0.25, bright = 0.75 } = opt;
             const t0 = ctx.currentTime;
             const startF = baseFreq * startRatio;
 
-            // Simplified Filter Chain (No complex peaking body filters)
-            const tone = ctx.createBiquadFilter();
-            tone.type = "lowpass";
-            tone.frequency.value = clamp(700 + startF * 12, 700, 16000);
-            tone.Q.value = 0.2;
-
+            const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = clamp(700 + startF * 12, 700, 16000); tone.Q.value = 0.2;
             const out = ctx.createGain(); out.gain.value = 1.0;
             tone.connect(out); out.connect(destination);
 
@@ -319,59 +336,110 @@
             env.gain.linearRampToValueAtTime(amp, t0 + 0.02);
             env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
 
-            // Simple Oscillator Stack: Triangle + Sine + Sine
             const o1 = ctx.createOscillator(); o1.type = "triangle"; o1.freqMult = 1;
             const o2 = ctx.createOscillator(); o2.type = "sine"; o2.freqMult = 2; 
             const o3 = ctx.createOscillator(); o3.type = "sine"; o3.freqMult = 3;
-            
-            o1.frequency.value = startF; 
-            o2.frequency.value = startF * 2;
-            o3.frequency.value = startF * 3;
+            o1.frequency.value = startF; o2.frequency.value = startF * 2; o3.frequency.value = startF * 3;
 
             const g1 = ctx.createGain(); g1.gain.value = 1.0;
             const g2 = ctx.createGain(); g2.gain.value = 0.35;
             const g3 = ctx.createGain(); g3.gain.value = 0.2;
 
-            o1.connect(g1); g1.connect(env);
-            o2.connect(g2); g2.connect(env);
-            o3.connect(g3); g3.connect(env);
+            o1.connect(g1); g1.connect(env); o2.connect(g2); g2.connect(env); o3.connect(g3); g3.connect(env);
             env.connect(tone);
 
             o1.start(t0); o2.start(t0); o3.start(t0);
             const stopTime = t0 + dur + 0.1;
             o1.stop(stopTime); o2.stop(stopTime); o3.stop(stopTime);
 
-            const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stopTime: stopTime, stringY: stringY };
+            const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stringY: stringY, type: 'G2' };
             activeVoices.push(voiceObj);
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, (dur + 0.2) * 1000);
         }
 
-        // --- PLAY WRAPPERS ---
+        // --- NEW: HARMONICS BOWING ENGINE ---
+        // Creates a continuous bowed sound. Returns control object.
+        function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringY) {
+            const t0 = ctx.currentTime;
+            const f = baseFreq * startRatio; // Pitch determined by Slide X
+
+            // Crystal Tone: Pure Sines + High Q Bandpass
+            const o1 = ctx.createOscillator(); o1.type = "sine"; o1.freqMult = 1;
+            const o2 = ctx.createOscillator(); o2.type = "sine"; o2.freqMult = 2; // Octave
+            const o3 = ctx.createOscillator(); o3.type = "sine"; o3.freqMult = 4; // 2 Octaves (Glassy)
+            
+            o1.frequency.value = f; o2.frequency.value = f*2; o3.frequency.value = f*4;
+
+            const gainNode = ctx.createGain();
+            gainNode.gain.value = 0; // Starts silent, controlled by bow speed
+
+            const bp = ctx.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.Q.value = 8; // High Q for "singing" resonance
+            bp.frequency.value = f * 2; // Emphasize first harmonic
+
+            const reverb = ctx.createGain(); reverb.gain.value = 0.4; // Fake reverb by long release later
+
+            o1.connect(gainNode); o2.connect(gainNode); o3.connect(gainNode);
+            gainNode.connect(bp); 
+            bp.connect(destination);
+
+            o1.start(t0); o2.start(t0); o3.start(t0);
+
+            // Register as active voice for sliding
+            const voiceObj = { 
+                baseFreq: baseFreq, 
+                oscList: [o1, o2, o3], 
+                type: 'HARM',
+                gainNode: gainNode,
+                bpNode: bp,
+                stringY: stringY,
+                kill: function() {
+                    const t = ctx.currentTime;
+                    this.gainNode.gain.setTargetAtTime(0, t, 0.2); // Fade out
+                    setTimeout(() => {
+                        o1.stop(); o2.stop(); o3.stop();
+                        const idx = activeVoices.indexOf(this);
+                        if(idx > -1) activeVoices.splice(idx, 1);
+                    }, 250);
+                }
+            };
+            activeVoices.push(voiceObj);
+            return voiceObj;
+        }
+
+
+        // --- WRAPPERS & LOGIC ---
+
         function playGuitarICourse(baseFreq, currentRatio, stringY) {
             if (!audioCtx) return;
             pluckDoubleCourse(audioCtx, masterGain, baseFreq, currentRatio, stringY);
         }
 
-        function playGuitarIIString(baseFreq, ratio, stringY) {
+        // Logic split for Guitar II based on mode
+        function triggerGuitarII(baseFreq, ratio, stringY, velocity) {
             if (!audioCtx) return;
-            pluckGuitarIISlide(audioCtx, masterGain, baseFreq, ratio, stringY);
+            
+            if (isHarmonicsMode) {
+                // In Harmonics mode, we don't pluck.
+                // Sound is created/sustained by movement in handleTouchMove.
+                // We just need to ensure a voice exists for this string.
+                // See logic in checkTrigger/handleMove
+            } else {
+                // Standard Pluck
+                pluckGuitarIISlide(audioCtx, masterGain, baseFreq, ratio, stringY);
+            }
         }
 
-        // --- SLIDE & TOUCH LOGIC ---
+        // --- PHYSICS & INPUT ---
 
         function updateSlideState() {
             const touches = Array.from(activeTouches.values());
             
-            // FIX: DISAPPEARING SLIDE BUG
-            // Even if no touches, we keep the slide drawing, but reset it to vertical at last known position
             if (touches.length === 0 && !isMouseDown) {
                 slideState.active = false;
                 slideState.isVertical = true;
-                // If we have a rawMouseX, snap to it, otherwise keep last
-                if (rawMouseX > 0) {
-                    slideState.xTop = rawMouseX;
-                    slideState.xBottom = rawMouseX;
-                }
+                if (rawMouseX > 0) { slideState.xTop = rawMouseX; slideState.xBottom = rawMouseX; }
                 const res = calculateRatio(slideState.xTop);
                 updateRatioDisplay(res);
                 return; 
@@ -379,7 +447,6 @@
 
             slideState.active = true;
 
-            // 1. Single Touch/Mouse
             if (touches.length === 1 || (touches.length === 0 && isMouseDown)) {
                 slideState.isVertical = true;
                 const tx = (touches.length > 0) ? touches[0].x : rawMouseX;
@@ -388,36 +455,21 @@
                 slideState.displayRatio = res.ratio;
                 slideState.isSnapped = res.isSnapped;
                 
-                // Snap visual if needed
-                if(res.isSnapped) {
-                    slideState.xTop = res.snappedX;
-                    slideState.xBottom = res.snappedX;
-                } else {
-                    slideState.xTop = tx;
-                    slideState.xBottom = tx;
-                }
+                if(res.isSnapped) { slideState.xTop = res.snappedX; slideState.xBottom = res.snappedX; } 
+                else { slideState.xTop = tx; slideState.xBottom = tx; }
                 updateRatioDisplay(res);
-            } 
-            // 2. Multi Touch: Slanted
-            else {
+            } else {
                 slideState.isVertical = false;
                 slideState.isSnapped = false;
-                
                 touches.sort((a, b) => a.y - b.y);
                 const tTop = touches[0];
                 const tBot = touches[touches.length - 1];
-
-                let dy = tBot.y - tTop.y;
-                if (dy < 1) dy = 1; 
+                let dy = tBot.y - tTop.y; if (dy < 1) dy = 1; 
                 const m = (tBot.x - tTop.x) / dy;
-                
                 slideState.xTop = m * (0 - tTop.y) + tTop.x;
                 slideState.xBottom = m * (height - tTop.y) + tTop.x;
-                
-                // Clear display on slant
                 updateRatioDisplay({display: "", isSnapped: false});
             }
-
             updateVoicesPitch();
         }
 
@@ -434,20 +486,24 @@
 
             activeVoices.forEach(voice => {
                 let targetX;
-                if (slideState.isVertical) {
-                    targetX = slideState.xTop;
-                } else {
+                if (slideState.isVertical) targetX = slideState.xTop;
+                else {
                     const pct = voice.stringY / height;
                     targetX = slideState.xTop + (slideState.xBottom - slideState.xTop) * pct;
                 }
-
                 const ratioRes = calculateRatio(targetX);
                 const finalRatio = ratioRes.ratio;
 
+                // Update Pitch
                 voice.oscList.forEach(osc => {
                     const newFreq = voice.baseFreq * (osc.freqMult || 1) * finalRatio;
                     osc.frequency.setTargetAtTime(newFreq, t, 0.05);
                 });
+                
+                // Update Filter for Harmonics
+                if(voice.type === 'HARM' && voice.bpNode) {
+                    voice.bpNode.frequency.setTargetAtTime((voice.baseFreq * finalRatio * 2), t, 0.05);
+                }
             });
         }
 
@@ -462,11 +518,7 @@
             });
 
             if (closestIdx !== -1) {
-                return { 
-                    ratio: scaleMap[closestIdx].r, isSnapped: true, idx: closestIdx, 
-                    snappedX: (closestIdx / (scaleMap.length - 1)) * width,
-                    display: scaleMap[closestIdx].label || formatRatio(scaleMap[closestIdx].r)
-                };
+                return { ratio: scaleMap[closestIdx].r, isSnapped: true, idx: closestIdx, snappedX: (closestIdx / (scaleMap.length - 1)) * width, display: scaleMap[closestIdx].label || formatRatio(scaleMap[closestIdx].r) };
             } else {
                 const ratioIdxFloat = (px / width) * (scaleMap.length - 1);
                 const idxFloor = Math.floor(ratioIdxFloat);
@@ -478,46 +530,105 @@
             }
         }
 
-        // --- EVENT HANDLERS ---
+        // --- BOWING LOGIC (HARMONICS) ---
+        // Maps a string index to an active bowed voice
+        let bowedVoices = new Map(); // key: stringIndex, val: voiceObj
 
-        function getStringsConfig() {
-            if (currentMode === 'VECTOR') {
-                return { count: 3, spacing: height/3, data: vectorCourses, type: 'course' };
+        function updateBowing(strIdx, visualY, velocity, baseFreq) {
+            // Find current Pitch Ratio at this height
+            let targetX;
+            if (slideState.isVertical) targetX = slideState.xTop;
+            else {
+                const pct = visualY / height;
+                targetX = slideState.xTop + (slideState.xBottom - slideState.xTop) * pct;
+            }
+            const r = calculateRatio(targetX).ratio;
+
+            // Check if voice exists
+            let voice = bowedVoices.get(strIdx);
+            
+            // If velocity is high enough, start or sustain
+            // Velocity threshold to hear sound
+            const speed = Math.abs(velocity);
+            
+            if (speed > 0.5) {
+                if (!voice) {
+                    // Create new voice
+                    voice = startBowedHarmonic(audioCtx, masterGain, baseFreq, r, visualY);
+                    bowedVoices.set(strIdx, voice);
+                }
+                
+                // Map speed to gain (Volume)
+                // Max gain 0.6
+                const vol = Math.min(speed * 0.05, 0.6);
+                voice.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
+                
+                // Visual Pulse (Continuous)
+                if (Math.random() > 0.7) {
+                    pulses.push({ y: visualY, life: 0.5, color: '#b19cd9', w: 4 });
+                }
             } else {
-                return { count: 10, spacing: height/10, data: slateStrings, type: 'single' };
+                // If stopped moving, fade out
+                if (voice) {
+                    voice.gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                    // If silent for a bit, kill it? 
+                    // Simpler: Just let gain drop. If we start moving again, it picks up.
+                    // To save CPU, we could kill if gain is ~0. But let's keep it simple for now.
+                }
             }
         }
 
-        function checkTrigger(y, touchId) {
-            const cfg = getStringsConfig();
+        // --- INPUT ROUTING ---
+
+        function checkTrigger(y, touchId, velocity) {
+            // Velocity comes from dy (movement speed)
+            
+            const cfg = { count: 10, spacing: height/10 }; // Guitar II spacing
             const strIdx = Math.floor(y / cfg.spacing);
             
-            // Check against last triggered for this specific touch
-            let lastIdx = (touchId === -1) ? lastTriggeredStringIndex : (activeTouches.get(touchId)?.lastStr ?? -1);
+            // HARMONICS MODE LOGIC
+            if (currentMode === 'SLATE' && isHarmonicsMode) {
+                if (strIdx >= 0 && strIdx < 10) {
+                    const visualY = (strIdx * cfg.spacing) + (cfg.spacing / 2);
+                    const baseFreq = slateStrings[strIdx];
+                    updateBowing(strIdx, visualY, velocity, baseFreq);
+                }
+                return;
+            }
 
-            if (strIdx >= 0 && strIdx < cfg.count && strIdx !== lastIdx) {
-                const visualY = (strIdx * cfg.spacing) + (cfg.spacing / 2);
+            // STANDARD TRIGGER LOGIC (Vector or Slate Normal)
+            // (Only triggers on NEW string entry)
+            let lastIdx = (touchId === -1) ? lastTriggeredStringIndex : (activeTouches.get(touchId)?.lastStr ?? -1);
+            
+            // Re-calculate config based on mode
+            const spacing = (currentMode === 'VECTOR') ? height/3 : height/10;
+            const count = (currentMode === 'VECTOR') ? 3 : 10;
+            const idx = Math.floor(y / spacing);
+
+            if (idx >= 0 && idx < count && idx !== lastIdx) {
+                const visualY = (idx * spacing) + (spacing / 2);
                 
-                // Calculate INITIAL pitch ratio for attack based on slide geometry
-                let initialX;
-                if (slideState.isVertical) initialX = slideState.xTop;
+                let targetX;
+                if (slideState.isVertical) targetX = slideState.xTop;
                 else {
                     const pct = visualY / height;
-                    initialX = slideState.xTop + (slideState.xBottom - slideState.xTop) * pct;
+                    targetX = slideState.xTop + (slideState.xBottom - slideState.xTop) * pct;
                 }
-                const rObj = calculateRatio(initialX);
+                const r = calculateRatio(targetX).ratio;
 
-                if (cfg.type === 'course') {
-                    playGuitarICourse(cfg.data[strIdx].freq, rObj.ratio, visualY);
+                if (currentMode === 'VECTOR') {
+                    const baseFreq = vectorCourses[idx].freq;
+                    playGuitarICourse(baseFreq, r, visualY);
                     pulses.push({ y: visualY - 5, life: 1, color: '#fff', w: 2 });
                     pulses.push({ y: visualY + 5, life: 1, color: '#fff', w: 2 });
                 } else {
-                    playGuitarIIString(cfg.data[strIdx], rObj.ratio, visualY);
+                    const baseFreq = slateStrings[idx];
+                    triggerGuitarII(baseFreq, r, visualY); // Standard pluck
                     pulses.push({ y: visualY, life: 1, color: '#aaa', w: 8 });
                 }
 
-                if (touchId === -1) lastTriggeredStringIndex = strIdx;
-                else if (activeTouches.has(touchId)) activeTouches.get(touchId).lastStr = strIdx;
+                if (touchId === -1) lastTriggeredStringIndex = idx;
+                else if (activeTouches.has(touchId)) activeTouches.get(touchId).lastStr = idx;
             }
         }
 
@@ -525,20 +636,29 @@
         function handleMouseDown(e) {
             isMouseDown = true;
             rawMouseX = e.clientX - canvas.getBoundingClientRect().left;
+            lastMouseY = e.clientY;
             updateSlideState();
-            checkTrigger(e.clientY - canvas.getBoundingClientRect().top, -1);
+            // Check trigger (velocity 0 initially)
+            checkTrigger(e.clientY - canvas.getBoundingClientRect().top, -1, 0);
         }
         function handleMouseUp() { 
             isMouseDown = false; 
             lastTriggeredStringIndex = -1; 
-            updateSlideState(); // Trigger visual reset
+            updateSlideState(); 
+            // Kill bowed voices if mouse up
+            bowedVoices.forEach(v => v.kill());
+            bowedVoices.clear();
         }
         function handleMouseMove(e) {
             if (!canvas) return;
             const rect = canvas.getBoundingClientRect();
             rawMouseX = e.clientX - rect.left;
+            
+            const vy = e.clientY - lastMouseY; // Velocity Y
+            lastMouseY = e.clientY;
+
             updateSlideState();
-            if(isMouseDown) checkTrigger(e.clientY - rect.top, -1);
+            if(isMouseDown) checkTrigger(e.clientY - rect.top, -1, vy);
         }
 
         // Touch
@@ -547,8 +667,9 @@
             const rect = canvas.getBoundingClientRect();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
-                activeTouches.set(t.identifier, { x: t.clientX - rect.left, y: t.clientY - rect.top, lastStr: -1 });
-                checkTrigger(t.clientY - rect.top, t.identifier);
+                // Store initial Y for velocity calc later
+                activeTouches.set(t.identifier, { x: t.clientX - rect.left, y: t.clientY - rect.top, lastStr: -1, lastY: t.clientY - rect.top });
+                checkTrigger(t.clientY - rect.top, t.identifier, 0);
             }
             updateSlideState();
         }
@@ -559,10 +680,15 @@
                 const t = e.changedTouches[i];
                 const touchData = activeTouches.get(t.identifier);
                 if (touchData) { 
+                    const curY = t.clientY - rect.top;
+                    const vy = curY - touchData.lastY; // Velocity
+                    
                     touchData.x = t.clientX - rect.left; 
-                    touchData.y = t.clientY - rect.top; 
+                    touchData.y = curY; 
+                    touchData.lastY = curY;
+                    
+                    checkTrigger(curY, t.identifier, vy);
                 }
-                checkTrigger(touchData.y, t.identifier);
             }
             updateSlideState();
         }
@@ -570,6 +696,12 @@
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 activeTouches.delete(e.changedTouches[i].identifier);
+            }
+            // If touches end, kill bows? Or wait? 
+            // Better to check if any touch remains on that string. Simplified: Kill all bows when touches end is safest.
+            if(activeTouches.size === 0) {
+                bowedVoices.forEach(v => v.kill());
+                bowedVoices.clear();
             }
             updateSlideState();
         }
@@ -583,37 +715,30 @@
                 const x = index * step;
                 ctx.beginPath();
                 ctx.moveTo(x, 0); ctx.lineTo(x, height);
-                // Check match with current vertical slide
                 if (slideState.isVertical && slideState.isSnapped && Math.abs(x - slideState.xTop) < 1) {
-                    ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)';
-                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)'; ctx.lineWidth = 2;
                 } else if (item.main) {
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-                    ctx.lineWidth = 1;
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-                    ctx.font = '12px Courier New';
-                    ctx.textAlign = 'left';
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; ctx.lineWidth = 1;
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; ctx.font = '12px Courier New'; ctx.textAlign = 'left';
                     ctx.fillText(item.label, x + 4, height - 15);
                 } else {
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)'; ctx.lineWidth = 1;
                 }
                 ctx.stroke();
             });
         }
 
         function drawStrings() {
-            const cfg = getStringsConfig();
+            const cfg = (currentMode === 'VECTOR') ? { count: 3, spacing: height/3 } : { count: 10, spacing: height/10 };
             for (let i = 0; i < cfg.count; i++) {
                 const centerY = (i * cfg.spacing) + (cfg.spacing / 2);
                 let highlight = false;
-                // Highlighting check logic
-                const rect = canvas.getBoundingClientRect();
-                // Simple highlight if mouse is down over string
-                // (Note: mouse Y is not global, need to track it or just use touch logic)
-                // For simplicity, vibration is the main feedback. Highlights are subtle.
+                if (isMouseDown && Math.abs(lastMouseY - canvas.getBoundingClientRect().top - centerY) < cfg.spacing/2) highlight = true;
+                for (let t of activeTouches.values()) { if (Math.abs(t.y - centerY) < cfg.spacing/2) highlight = true; }
+
+                if (highlight) { ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(0, i*cfg.spacing, width, cfg.spacing); }
                 
-                if (cfg.type === 'course') {
+                if (currentMode === 'VECTOR') {
                     ctx.beginPath(); ctx.moveTo(0, centerY - 5); ctx.lineTo(width, centerY - 5); ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, centerY + 5); ctx.lineTo(width, centerY + 5); ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
                 } else {
@@ -634,43 +759,28 @@
         }
 
         function drawSlide() {
-            // FIX: Always draw logic
             let x1 = slideState.xTop;
             let x2 = slideState.xBottom;
-            
-            // Dark Klein Blue colors
             const barWidth = 20;
             const darkBlue = 'rgba(0, 32, 128, 0.85)';
             const lightBlue = 'rgba(30, 60, 180, 0.8)';
 
             ctx.save();
             ctx.beginPath();
-            ctx.moveTo(x1 - barWidth/2, 0);
-            ctx.lineTo(x1 + barWidth/2, 0);
-            ctx.lineTo(x2 + barWidth/2, height);
-            ctx.lineTo(x2 - barWidth/2, height);
-            ctx.closePath();
-            ctx.fillStyle = darkBlue;
-            ctx.fill();
+            ctx.moveTo(x1 - barWidth/2, 0); ctx.lineTo(x1 + barWidth/2, 0);
+            ctx.lineTo(x2 + barWidth/2, height); ctx.lineTo(x2 - barWidth/2, height);
+            ctx.closePath(); ctx.fillStyle = darkBlue; ctx.fill();
 
-            ctx.beginPath();
-            ctx.moveTo(x1, 0);
-            ctx.lineTo(x2, height);
-            ctx.strokeStyle = lightBlue;
-            ctx.lineWidth = 4;
-            ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x2, height);
+            ctx.strokeStyle = lightBlue; ctx.lineWidth = 4; ctx.stroke();
             
-            // Dots
-            ctx.fillStyle = '#f00';
+            ctx.fillStyle = isHarmonicsMode ? '#b19cd9' : '#f00'; // Purple dot for harmonics
             for (let t of activeTouches.values()) {
                 ctx.beginPath(); ctx.arc(t.x, t.y, 4, 0, Math.PI*2); ctx.fill();
             }
-            if (isMouseDown) {
-                 // We need Y for mouse dot, but we don't track it globally easily in this struct
-                 // It's okay to skip the red dot for mouse or track it if needed. 
-                 // Let's rely on the bar itself.
+            if(isMouseDown) {
+                 ctx.beginPath(); ctx.arc(rawMouseX, lastMouseY - canvas.getBoundingClientRect().top, 4, 0, Math.PI*2); ctx.fill();
             }
-            
             ctx.restore();
         }
 
