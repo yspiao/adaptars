@@ -13,6 +13,9 @@
             --accent: #333333;
             --harmonics-active: #b19cd9;
             --slide-color: #002080;
+            /* New Colors for Tonality */
+            --oto-color: #ffffff; /* White for Otonality */
+            --uto-color: #4a90e2; /* Blue for Utonality */
         }
         body {
             margin: 0; background-color: var(--bg); color: var(--primary);
@@ -39,8 +42,9 @@
         
         button {
             background: none; border: 1px solid var(--dim); color: var(--dim);
-            padding: 8px 0; width: 50px; cursor: pointer; font-family: inherit; font-size: 14px;
-            letter-spacing: 1px; transition: all 0.2s; border-radius: 4px; text-align: center;
+            padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 14px;
+            letter-spacing: 1px; transition: all 0.3s ease; border-radius: 4px; text-align: center;
+            min-width: 40px;
         }
         button.active {
             border-color: var(--primary); color: var(--bg); background: var(--primary);
@@ -52,6 +56,40 @@
             background: transparent; border-color: var(--harmonics-active); 
             color: var(--harmonics-active); box-shadow: 0 0 8px var(--harmonics-active);
         }
+
+        /* --- TONALITY BUTTON STYLES --- */
+        #btn-tonality {
+            display: none; /* Hidden by default */
+            font-size: 12px; width: 100px;
+            border: 1px solid transparent; /* Prepare for glow */
+        }
+        
+        /* Otonality State (White) */
+        #btn-tonality.oto {
+            color: var(--oto-color);
+            border-color: rgba(255, 255, 255, 0.3);
+            animation: breathe-oto 3s infinite ease-in-out;
+        }
+        
+        /* Utonality State (Blue) */
+        #btn-tonality.uto {
+            color: var(--uto-color);
+            border-color: rgba(74, 144, 226, 0.3);
+            animation: breathe-uto 3s infinite ease-in-out;
+        }
+
+        @keyframes breathe-oto {
+            0% { box-shadow: 0 0 2px rgba(255, 255, 255, 0.1); text-shadow: 0 0 2px rgba(255,255,255,0.2); opacity: 0.8; }
+            50% { box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); text-shadow: 0 0 8px rgba(255,255,255,0.6); opacity: 1; }
+            100% { box-shadow: 0 0 2px rgba(255, 255, 255, 0.1); text-shadow: 0 0 2px rgba(255,255,255,0.2); opacity: 0.8; }
+        }
+
+        @keyframes breathe-uto {
+            0% { box-shadow: 0 0 2px rgba(74, 144, 226, 0.1); text-shadow: 0 0 2px rgba(74, 144, 226,0.2); opacity: 0.8; }
+            50% { box-shadow: 0 0 15px rgba(74, 144, 226, 0.4); text-shadow: 0 0 8px rgba(74, 144, 226,0.6); opacity: 1; }
+            100% { box-shadow: 0 0 2px rgba(74, 144, 226, 0.1); text-shadow: 0 0 2px rgba(74, 144, 226,0.2); opacity: 0.8; }
+        }
+
 
         #instrument-container {
             flex-grow: 1; position: relative; cursor: crosshair; touch-action: none;
@@ -106,6 +144,7 @@
         <div class="controls">
             <button id="btn-vector" class="active">I</button>
             <button id="btn-slate">II</button>
+            <button id="btn-tonality">OTONALITY</button> 
             <button id="btn-harm">H</button>
         </div>
     </header>
@@ -139,7 +178,6 @@
         let activeTouches = new Map(); 
         let bowedVoices = new Map();
 
-        // UPDATED SLIDE STATE: Supports Angle (Left Y and Right Y)
         let slideState = {
             active: false, 
             yLeft: 0, 
@@ -148,7 +186,7 @@
             displayRatio: 1.0, 
             isSnapped: false,
             controllingTouchId: null,
-            isFlat: true // Tracks if the bar is strictly horizontal
+            isFlat: true
         };
 
         const scaleMap = [
@@ -162,11 +200,32 @@
             { r: 40/21 }, { r: 64/33 }, { r: 160/81 }, { r: 2/1, label: '2/1', main: true }
         ];
 
-        const vectorCourses = [{ note: 'Eb', freq: 98 * 0.8 }, { note: 'G',  freq: 98 }, { note: 'B',  freq: 98 * 1.25 }];
-        const slateStrings = [];
-        const base = 98; 
-        [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.75, 4].forEach(i => slateStrings.push(base * i));
+        // --- TUNING (STRICTLY FROM DOCS) ---
+        
+        // GUITAR I: Adapted Guitar I (1934/1945)
+        // Tuning: Paired Octaves (Unisons in some versions, but 1945 PDF implies octaves G-g etc.)
+        // Base Frequencies: 
+        // G = 98 Hz (Low G)
+        // Course 1 (Low): Eb = 5/4 below G = 98 * (4/5) = 78.4 Hz
+        // Course 2 (Mid): G = 98 Hz
+        // Course 3 (High): B = 5/4 above G = 98 * (5/4) = 122.5 Hz
+        const vectorCourses = [
+            { note: 'Eb', freq: 98 * 0.8 }, 
+            { note: 'G',  freq: 98 }, 
+            { note: 'B',  freq: 98 * 1.25 }
+        ];
+        
+        // GUITAR II CONFIG
+        const slateBase = 49.0; // G1 (Fundamental)
+        let slateStrings = [];  
 
+        // Otonality Ratios (From Table 1 in PDF)
+        const OTONALITY_RATIOS = [4/3, 16/9, 4/3, 16/9, 10/9, 4/3, 14/9, 16/9, 15/8, 2/1];
+        
+        // Utonality Ratios (From Table 1 in PDF)
+        const UTONALITY_RATIOS = [4/3, 16/9, 4/3, 16/15, 6/5, 4/3, 32/21, 16/9, 15/8, 64/33];
+
+        let currentTonalityMode = 'OTONALITY'; 
 
         // --- 3. INITIALIZATION ---
         window.onload = () => {
@@ -177,20 +236,20 @@
             document.getElementById('btn-vector').addEventListener('click', () => switchMode('VECTOR'));
             document.getElementById('btn-slate').addEventListener('click', () => switchMode('SLATE'));
             document.getElementById('btn-harm').addEventListener('click', toggleHarmonics);
+            document.getElementById('btn-tonality').addEventListener('click', toggleTonality);
             
             window.addEventListener('resize', resize);
             
-            // Input Handlers
             canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
             canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
             canvas.addEventListener('touchend', handleTouchEnd, {passive: false});
             canvas.addEventListener('touchcancel', handleTouchEnd, {passive: false});
             
-            // Mouse
             canvas.addEventListener('mousedown', handleMouseDown);
             window.addEventListener('mousemove', handleMouseMove); 
             window.addEventListener('mouseup', handleMouseUp);
 
+            setTonality('OTONALITY'); 
             resize();
         };
 
@@ -217,6 +276,13 @@
             document.getElementById('btn-vector').className = mode === 'VECTOR' ? 'active' : '';
             document.getElementById('btn-slate').className = mode === 'SLATE' ? 'active' : '';
             
+            const tonalityBtn = document.getElementById('btn-tonality');
+            if (mode === 'SLATE') {
+                tonalityBtn.style.display = 'block';
+            } else {
+                tonalityBtn.style.display = 'none';
+            }
+
             isHarmonicsMode = false;
             document.getElementById('btn-harm').classList.remove('active');
             
@@ -225,7 +291,6 @@
             activeTouches.clear();
             bowedVoices.forEach(v => v.kill()); bowedVoices.clear();
             slideState.active = false;
-            // Reset slide orientation
             slideState.yLeft = 0; slideState.yRight = 0; slideState.isFlat = true;
         }
 
@@ -237,9 +302,33 @@
                 btn.classList.remove('active');
                 bowedVoices.forEach(v => v.kill()); bowedVoices.clear();
             }
-            updateSlideState(); // Immediately force vertical/flat check
+            updateSlideState(); 
         }
 
+        function toggleTonality() {
+            const newMode = currentTonalityMode === 'OTONALITY' ? 'UTONALITY' : 'OTONALITY';
+            setTonality(newMode);
+        }
+
+        function setTonality(mode) {
+            currentTonalityMode = mode;
+            const btn = document.getElementById('btn-tonality');
+            btn.innerText = mode;
+            
+            // Remove old class and add new specific class
+            btn.classList.remove('oto', 'uto');
+            if (mode === 'OTONALITY') {
+                btn.classList.add('oto');
+            } else {
+                btn.classList.add('uto');
+            }
+            
+            slateStrings = [];
+            const ratios = mode === 'OTONALITY' ? OTONALITY_RATIOS : UTONALITY_RATIOS;
+            ratios.forEach(r => slateStrings.push(slateBase * r));
+            
+            updateVoicesPitch();
+        }
 
         // --- 4. DSP UTILITIES ---
         function clamp(x, a, b){ return Math.min(b, Math.max(a, x)); }
@@ -254,18 +343,24 @@
 
         // --- 5. SOUND ENGINES ---
         
-        // GUITAR I (Classic Warm)
+        // GUITAR I (Classic Warm with OCTAVE DOUBLING)
+        // Strictly follows PDF description of paired courses tuned in Octaves (2/1)
         function pluckDoubleCourse(ctx, destination, baseFreq, startRatio, stringX, opt={}){
-            const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.010, detune2_cents = 2.0 } = opt;
+            const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.012, detune2_cents = 2.5 } = opt;
             const t0 = ctx.currentTime;
             const f1 = baseFreq * startRatio;
+            
+            // Common body resonance filter
             const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(220 + f1*0.22, 160, 900); body1.Q.value = 1.2; body1.gain.value = 3.8;
             const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(520 + f1*0.35, 260, 1800); body2.Q.value = 1.3; body2.gain.value = 2.4;
             const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(2500 + 12000*bright, 2000, 14000); lp.Q.value = 0.2;
             const out = ctx.createGain(); out.gain.value = 1.0;
             out.connect(body1); body1.connect(body2); body2.connect(lp); lp.connect(destination);
+            
             const pickBuf = makePickNoiseBuffer(ctx, 0.065);
             let collectedOscs = [];
+
+            // Helper to create one string
             function oneString(freqMult, startDelay, localAmp, localBright, detuneAmt){
                 const ts = t0 + startDelay;
                 const startF = f1 * freqMult;
@@ -273,29 +368,44 @@
                 env.gain.setValueAtTime(0.00001, ts);
                 env.gain.linearRampToValueAtTime(localAmp, ts + 0.010);
                 env.gain.exponentialRampToValueAtTime(0.0001, ts + 2.0);
-                const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = clamp(700 + startF*(6 + 18*localBright), 700, 16000); tone.Q.value = 0.22;
+                
+                // Individual tone color per string
+                const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; 
+                tone.frequency.value = clamp(700 + startF*(6 + 18*localBright), 700, 16000); 
+                tone.Q.value = 0.22;
+
                 const o1 = ctx.createOscillator(); o1.type = "triangle"; o1.frequency.value = startF;
                 const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = startF*2;
                 const o3 = ctx.createOscillator(); o3.type = "sine"; o3.frequency.value = startF*3;
+                
                 o1.freqMult = 1 * freqMult; o2.freqMult = 2 * freqMult; o3.freqMult = 3 * freqMult;
                 o1.detune.value = detuneAmt; o2.detune.value = detuneAmt; o3.detune.value = detuneAmt;
+                
                 const g1 = ctx.createGain(); g1.gain.value = 1.0;
                 const g2 = ctx.createGain(); g2.gain.value = 0.3;
                 const g3 = ctx.createGain(); g3.gain.value = 0.16;
+                
                 const n = ctx.createBufferSource(); n.buffer = pickBuf;
                 const nGain = ctx.createGain(); nGain.gain.value = localAmp * (0.35 + 0.9*noise);
                 const nBP = ctx.createBiquadFilter(); nBP.type = "bandpass"; nBP.frequency.value = clamp(startF*2.8, 180, 9000); nBP.Q.value = 0.8;
+
                 o1.connect(g1); g1.connect(tone); o2.connect(g2); g2.connect(tone); o3.connect(g3); g3.connect(tone);
                 n.connect(nBP); nBP.connect(nGain); nGain.connect(tone);
                 tone.connect(env); env.connect(out);
+
                 o1.start(ts); o2.start(ts); o3.start(ts); n.start(ts); n.stop(ts + 0.070);
                 const stopAt = ts + 2.1;
                 o1.stop(stopAt); o2.stop(stopAt); o3.stop(stopAt);
                 collectedOscs.push(o1, o2, o3);
             }
+
+            // String 1: Fundamental
             oneString(1.0, 0.0, amp, bright, 0);
+            
+            // String 2: Octave Higher (Ratio 2.0) - Strictly follows Partch's pairing
             const detRatio = centsToRatio((Math.random()*2-1) * detune2_cents);
-            oneString(2.0 * detRatio, clamp(delay2, 0.0, 0.03), amp * 0.9, bright * 0.92, detune2_cents);
+            oneString(2.0 * detRatio, clamp(delay2, 0.0, 0.03), amp * 0.85, bright * 0.9, detune2_cents);
+
             const voiceObj = { baseFreq: baseFreq, oscList: collectedOscs, stringX: stringX, type: 'G1' };
             activeVoices.push(voiceObj);
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, 2200);
@@ -325,13 +435,23 @@
             o1.start(t0); o2.start(t0); o3.start(t0);
             const stopTime = t0 + dur + 0.1;
             o1.stop(stopTime); o2.stop(stopTime); o3.stop(stopTime);
-            const voiceObj = { baseFreq: baseFreq, oscList: [o1, o2, o3], stringX: stringX, type: 'G2' };
+            
+            const cfg = { count: 10, spacing: width/10 };
+            const strIdx = Math.floor(stringX / cfg.spacing);
+
+            const voiceObj = { 
+                baseFreq: baseFreq, 
+                oscList: [o1, o2, o3], 
+                stringX: stringX, 
+                strIdx: strIdx,
+                type: 'G2' 
+            };
             activeVoices.push(voiceObj);
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, (dur + 0.2) * 1000);
         }
 
-        // --- FIX 1: GENTLER HARMONICS SOUND ENGINE ---
-        function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringX) {
+        // HARMONICS (GENTLE VERSION)
+        function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringX, strIdx) {
             const t0 = ctx.currentTime;
             const f = baseFreq * startRatio; 
             const o1 = ctx.createOscillator(); o1.type = "sine"; o1.freqMult = 1; 
@@ -341,24 +461,23 @@
             
             o1.frequency.value = f; o2.frequency.value = f*2; o3.frequency.value = f*3; o4.frequency.value = f*4;
             
-            // Adjusted gains for softer tone
             const g1 = ctx.createGain(); g1.gain.value = 1.0;
-            const g2 = ctx.createGain(); g2.gain.value = 0.4; // Reduced
-            const g3 = ctx.createGain(); g3.gain.value = 0.2; // Reduced
-            const g4 = ctx.createGain(); g4.gain.value = 0.1; // Reduced
+            const g2 = ctx.createGain(); g2.gain.value = 0.4;
+            const g3 = ctx.createGain(); g3.gain.value = 0.2;
+            const g4 = ctx.createGain(); g4.gain.value = 0.1;
             
             const masterGainNode = ctx.createGain(); 
-            masterGainNode.gain.value = 0; // Start silent
+            masterGainNode.gain.value = 0; 
 
-            // Filters: Wider Bandpass + Soft Lowpass to remove harshness
+            // Softer Filters
             const bp = ctx.createBiquadFilter();
             bp.type = "bandpass";
-            bp.Q.value = 3; // Reduced Q for broader, gentler resonance
+            bp.Q.value = 3; 
             bp.frequency.value = f * 2; 
 
             const lp = ctx.createBiquadFilter();
             lp.type = "lowpass";
-            lp.frequency.value = 3500; // Cut off high fizz
+            lp.frequency.value = 3500; 
             lp.Q.value = 0.5;
 
             o1.connect(g1); g1.connect(masterGainNode); 
@@ -374,12 +493,13 @@
 
             const voiceObj = { 
                 baseFreq: baseFreq, oscList: [o1, o2, o3, o4], partialGains: [g1, g2, g3, g4],
-                baseGainValues: [1.0, 0.4, 0.2, 0.1], // Updated reference
+                baseGainValues: [1.0, 0.4, 0.2, 0.1], 
                 type: 'HARM', gainNode: masterGainNode, stringX: stringX,
-                bpNode: bp, // Save reference to update filter pitch
+                strIdx: strIdx,
+                bpNode: bp, 
                 kill: function() {
                     const t = ctx.currentTime;
-                    this.gainNode.gain.setTargetAtTime(0, t, 0.4); // Slower release
+                    this.gainNode.gain.setTargetAtTime(0, t, 0.4); 
                     setTimeout(() => {
                         o1.stop(); o2.stop(); o3.stop(); o4.stop();
                         const idx = activeVoices.indexOf(this);
@@ -414,12 +534,9 @@
         }
 
         function getHarmonicRatio(stringX) {
-            // Updated to fetch ratio based on specific String X vs Slide Y at that X
             let targetY;
             if (slideState.isFlat) targetY = slideState.yCenter;
             else {
-                // Linear interpolation: y = mx + c
-                // Ratio t = x / width
                 const t = stringX / width;
                 targetY = slideState.yLeft + (slideState.yRight - slideState.yLeft) * t;
             }
@@ -442,27 +559,23 @@
             });
 
             const isGhostMode = (activeStringIndices.size === 0);
-            
             const speed = Math.abs(velocity);
             
             for (let i=0; i<cfg.count; i++) {
                 const isActive = isGhostMode || activeStringIndices.has(i);
                 let voice = bowedVoices.get(i);
                 
-                // Calculate Ratio for this specific string
                 const visualX = (i * cfg.spacing) + (cfg.spacing/2);
                 const r = getHarmonicRatio(visualX);
 
                 if (isActive && speed > 0.5) {
                     if (!voice) {
                         const baseFreq = isVector ? vectorCourses[i].freq : slateStrings[i];
-                        voice = startBowedHarmonic(audioCtx, masterGain, baseFreq, r, visualX);
+                        voice = startBowedHarmonic(audioCtx, masterGain, baseFreq, r, visualX, i);
                         bowedVoices.set(i, voice);
                     }
                     
-                    // Slower swell logic
                     const vol = Math.min(speed * 0.01 + 0.02, 0.5);
-                    // Use longer time constant (0.6) for gentle attack
                     voice.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.6);
                     
                     voice.partialGains.forEach((pg, idx) => {
@@ -504,7 +617,6 @@
             if (strIdx >= 0 && strIdx < cfg.count && strIdx !== lastIdx) {
                 const visualX = (strIdx * cfg.spacing) + (cfg.spacing / 2);
                 
-                // Get Ratio based on angle
                 let targetY;
                 if (slideState.isFlat) targetY = slideState.yCenter;
                 else {
@@ -529,14 +641,12 @@
             }
         }
 
-        // --- 7. SLIDE PHYSICS (UPDATED) ---
+        // --- 7. SLIDE PHYSICS ---
 
         function updateSlideState() {
             const touches = Array.from(activeTouches.values());
             const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
             
-            // Filter touches that are "on the neck" (not in the picking zone for Harmonics mode)
-            // In Normal mode, all touches are slide touches potentially.
             let validTouches = [];
             if (isHarmonicsMode) {
                 validTouches = touches.filter(t => t.y < selectionZoneTop);
@@ -544,7 +654,6 @@
                 validTouches = touches;
             }
             
-            // Fallback to mouse
             if (validTouches.length === 0 && !isMouseDown) {
                  slideState.active = false;
                  return;
@@ -552,9 +661,7 @@
             
             slideState.active = true;
 
-            // --- FIX 2: FORCE HORIZONTAL vs ANGLE LOGIC ---
-            
-            // Condition for Flat: Harmonics Mode OR Only 1 Input (Mouse or Single Touch)
+            // Force Flat if Harmonics Mode OR Single Input
             if (isHarmonicsMode || (validTouches.length === 0 && isMouseDown) || validTouches.length === 1) {
                 slideState.isFlat = true;
                 
@@ -562,11 +669,8 @@
                 if (validTouches.length > 0) targetY = validTouches[0].y;
                 else targetY = rawMouseY;
                 
-                // Calculate snapping (only for flat mode typically, or center of angled)
                 const res = calculateRatio(targetY);
-                slideState.isSnapped = res.isSnapped; // Snap enabled in flat mode
-                
-                // If snapped, use the snapped Y
+                slideState.isSnapped = res.isSnapped; 
                 const finalY = res.snappedY || targetY;
                 
                 slideState.yCenter = finalY;
@@ -576,40 +680,28 @@
                 updateRatioDisplay(res);
                 
             } else {
-                // Angled Mode (Normal Mode + Multi-Touch)
                 slideState.isFlat = false;
-                slideState.isSnapped = false; // Disable snapping for fluid angled slide
+                slideState.isSnapped = false;
                 
-                // Sort by X to find left-most and right-most
                 validTouches.sort((a, b) => a.x - b.x);
-                
                 const t1 = validTouches[0];
                 const t2 = validTouches[validTouches.length - 1];
                 
-                // Math: Line equation y - y1 = m(x - x1)
-                const dx = t2.x - t1.x;
-                // Avoid division by zero
-                const safeDx = Math.max(dx, 1); 
+                const safeDx = Math.max(t2.x - t1.x, 1); 
                 const m = (t2.y - t1.y) / safeDx;
                 
-                // Calculate Y at x=0 (yLeft) and x=width (yRight)
-                // y = m(x - x1) + y1
                 slideState.yLeft = m * (0 - t1.x) + t1.y;
                 slideState.yRight = m * (width - t1.x) + t1.y;
-                
-                // Center for display purposes
                 slideState.yCenter = (slideState.yLeft + slideState.yRight) / 2;
                 
                 updateRatioDisplay({ display: "", isSnapped: false });
             }
-
             updateVoicesPitch();
         }
 
         function calculateRatio(py) {
             let closestDist = Infinity;
             let closestIdx = -1;
-            
             scaleMap.forEach((item, index) => {
                 const targetY = (index / (scaleMap.length - 1)) * height;
                 const dist = Math.abs(py - targetY);
@@ -642,7 +734,10 @@
             const t = audioCtx.currentTime;
             
             activeVoices.forEach(voice => {
-                // Calculate specific Y for this string's X position on the slide
+                if (currentMode === 'SLATE' && voice.type !== 'G1' && typeof voice.strIdx === 'number') {
+                     voice.baseFreq = slateStrings[voice.strIdx];
+                }
+
                 let currentY;
                 if (slideState.isFlat) currentY = slideState.yCenter;
                 else {
@@ -654,7 +749,6 @@
                 const currentR = ratioInfo.ratio;
                 
                 if (voice.type === 'HARM') {
-                    // Update Harmonics Bandpass
                     if(voice.bpNode) {
                         voice.bpNode.frequency.setTargetAtTime(voice.baseFreq * currentR * 2, t, 0.05);
                     }
@@ -668,7 +762,7 @@
             });
         }
 
-        // --- 8. HANDLERS (UPDATED) ---
+        // --- 8. HANDLERS ---
 
         function handleMouseDown(e) {
             isMouseDown = true;
@@ -746,7 +840,6 @@
             scaleMap.forEach((item, index) => {
                 const y = index * step;
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y);
-                // Snap visual only works in Flat mode
                 if (slideState.isFlat && slideState.isSnapped && Math.abs(y - slideState.yCenter) < 2) {
                     ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)'; ctx.lineWidth = 2;
                 } else if (item.main) {
@@ -777,7 +870,10 @@
                     ctx.beginPath(); ctx.moveTo(centerX - 5, 0); ctx.lineTo(centerX - 5, height); ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(centerX + 5, 0); ctx.lineTo(centerX + 5, height); ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
                 } else {
-                    ctx.beginPath(); ctx.moveTo(centerX, 0); ctx.lineTo(centerX, height); ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(centerX, 0); ctx.lineTo(centerX, height); 
+                    if (currentTonalityMode === 'OTONALITY') ctx.strokeStyle = '#444';
+                    else ctx.strokeStyle = '#3e4e5e'; 
+                    ctx.lineWidth = 2; ctx.stroke();
                 }
             }
 
@@ -799,36 +895,25 @@
         }
 
         function drawSlide() {
-            // Updated to draw angled polygon
             const y1 = slideState.yLeft;
             const y2 = slideState.yRight;
             const barHeight = 20;
             const darkBlue = 'rgba(0, 32, 128, 0.85)'; const lightBlue = 'rgba(30, 60, 180, 0.8)';
 
             ctx.save();
-            
-            // Draw Main Bar (Polygon)
             ctx.beginPath();
             ctx.moveTo(0, y1 - barHeight/2);
             ctx.lineTo(width, y2 - barHeight/2);
             ctx.lineTo(width, y2 + barHeight/2);
             ctx.lineTo(0, y1 + barHeight/2);
             ctx.closePath();
-            ctx.fillStyle = darkBlue; 
-            ctx.fill();
+            ctx.fillStyle = darkBlue; ctx.fill();
 
-            // Draw Bright Center Line
-            ctx.beginPath();
-            ctx.moveTo(0, y1);
-            ctx.lineTo(width, y2);
-            ctx.strokeStyle = lightBlue;
-            ctx.lineWidth = 3;
-            ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(width, y2);
+            ctx.strokeStyle = lightBlue; ctx.lineWidth = 3; ctx.stroke();
             
-            // Draw Touch Points
             ctx.fillStyle = isHarmonicsMode ? '#b19cd9' : '#f00'; 
             activeTouches.forEach(t => { 
-                // Only draw red dots for slide-controlling touches
                 const selectionZoneTop = height * (1 - SELECT_ZONE_RATIO);
                 if (!isHarmonicsMode || t.y < selectionZoneTop) {
                     ctx.beginPath(); ctx.arc(t.x, t.y, 15, 0, Math.PI*2); ctx.fill(); 
