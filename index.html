@@ -13,7 +13,7 @@
             --accent: #333333;
             --harmonics-active: #b19cd9;
             --slide-color: #002080;
-            /* New Colors for Tonality */
+            /* Colors for Tonality */
             --oto-color: #ffffff; /* White for Otonality */
             --uto-color: #4a90e2; /* Blue for Utonality */
         }
@@ -61,7 +61,7 @@
         #btn-tonality {
             display: none; /* Hidden by default */
             font-size: 12px; width: 100px;
-            border: 1px solid transparent; /* Prepare for glow */
+            border: 1px solid transparent; 
         }
         
         /* Otonality State (White) */
@@ -200,15 +200,9 @@
             { r: 40/21 }, { r: 64/33 }, { r: 160/81 }, { r: 2/1, label: '2/1', main: true }
         ];
 
-        // --- TUNING (STRICTLY FROM DOCS) ---
+        // --- TUNING ---
         
-        // GUITAR I: Adapted Guitar I (1934/1945)
-        // Tuning: Paired Octaves (Unisons in some versions, but 1945 PDF implies octaves G-g etc.)
-        // Base Frequencies: 
-        // G = 98 Hz (Low G)
-        // Course 1 (Low): Eb = 5/4 below G = 98 * (4/5) = 78.4 Hz
-        // Course 2 (Mid): G = 98 Hz
-        // Course 3 (High): B = 5/4 above G = 98 * (5/4) = 122.5 Hz
+        // GUITAR I: Paired Octaves (Strictly per PDF)
         const vectorCourses = [
             { note: 'Eb', freq: 98 * 0.8 }, 
             { note: 'G',  freq: 98 }, 
@@ -216,13 +210,10 @@
         ];
         
         // GUITAR II CONFIG
-        const slateBase = 49.0; // G1 (Fundamental)
+        const slateBase = 49.0; // G1
         let slateStrings = [];  
 
-        // Otonality Ratios (From Table 1 in PDF)
         const OTONALITY_RATIOS = [4/3, 16/9, 4/3, 16/9, 10/9, 4/3, 14/9, 16/9, 15/8, 2/1];
-        
-        // Utonality Ratios (From Table 1 in PDF)
         const UTONALITY_RATIOS = [4/3, 16/9, 4/3, 16/15, 6/5, 4/3, 32/21, 16/9, 15/8, 64/33];
 
         let currentTonalityMode = 'OTONALITY'; 
@@ -315,7 +306,6 @@
             const btn = document.getElementById('btn-tonality');
             btn.innerText = mode;
             
-            // Remove old class and add new specific class
             btn.classList.remove('oto', 'uto');
             if (mode === 'OTONALITY') {
                 btn.classList.add('oto');
@@ -343,14 +333,12 @@
 
         // --- 5. SOUND ENGINES ---
         
-        // GUITAR I (Classic Warm with OCTAVE DOUBLING)
-        // Strictly follows PDF description of paired courses tuned in Octaves (2/1)
+        // GUITAR I (Classic Warm with Octave Pairs)
         function pluckDoubleCourse(ctx, destination, baseFreq, startRatio, stringX, opt={}){
             const { dur = 2.5, amp = 0.22, bright = 0.65, noise = 0.12, delay2 = 0.012, detune2_cents = 2.5 } = opt;
             const t0 = ctx.currentTime;
             const f1 = baseFreq * startRatio;
             
-            // Common body resonance filter
             const body1 = ctx.createBiquadFilter(); body1.type = "peaking"; body1.frequency.value = clamp(220 + f1*0.22, 160, 900); body1.Q.value = 1.2; body1.gain.value = 3.8;
             const body2 = ctx.createBiquadFilter(); body2.type = "peaking"; body2.frequency.value = clamp(520 + f1*0.35, 260, 1800); body2.Q.value = 1.3; body2.gain.value = 2.4;
             const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = clamp(2500 + 12000*bright, 2000, 14000); lp.Q.value = 0.2;
@@ -360,7 +348,6 @@
             const pickBuf = makePickNoiseBuffer(ctx, 0.065);
             let collectedOscs = [];
 
-            // Helper to create one string
             function oneString(freqMult, startDelay, localAmp, localBright, detuneAmt){
                 const ts = t0 + startDelay;
                 const startF = f1 * freqMult;
@@ -369,7 +356,6 @@
                 env.gain.linearRampToValueAtTime(localAmp, ts + 0.010);
                 env.gain.exponentialRampToValueAtTime(0.0001, ts + 2.0);
                 
-                // Individual tone color per string
                 const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; 
                 tone.frequency.value = clamp(700 + startF*(6 + 18*localBright), 700, 16000); 
                 tone.Q.value = 0.22;
@@ -399,10 +385,7 @@
                 collectedOscs.push(o1, o2, o3);
             }
 
-            // String 1: Fundamental
             oneString(1.0, 0.0, amp, bright, 0);
-            
-            // String 2: Octave Higher (Ratio 2.0) - Strictly follows Partch's pairing
             const detRatio = centsToRatio((Math.random()*2-1) * detune2_cents);
             oneString(2.0 * detRatio, clamp(delay2, 0.0, 0.03), amp * 0.85, bright * 0.9, detune2_cents);
 
@@ -450,10 +433,11 @@
             setTimeout(() => { const idx = activeVoices.indexOf(voiceObj); if(idx > -1) activeVoices.splice(idx, 1); }, (dur + 0.2) * 1000);
         }
 
-        // HARMONICS (GENTLE VERSION)
+        // --- HARMONICS (UPDATED: Crystal, Continuous, Mysterious) ---
         function startBowedHarmonic(ctx, destination, baseFreq, startRatio, stringX, strIdx) {
             const t0 = ctx.currentTime;
             const f = baseFreq * startRatio; 
+            
             const o1 = ctx.createOscillator(); o1.type = "sine"; o1.freqMult = 1; 
             const o2 = ctx.createOscillator(); o2.type = "sine"; o2.freqMult = 2; 
             const o3 = ctx.createOscillator(); o3.type = "sine"; o3.freqMult = 3; 
@@ -461,23 +445,24 @@
             
             o1.frequency.value = f; o2.frequency.value = f*2; o3.frequency.value = f*3; o4.frequency.value = f*4;
             
+            // Gains updated for "Crystal" feel (more upper harmonics)
             const g1 = ctx.createGain(); g1.gain.value = 1.0;
-            const g2 = ctx.createGain(); g2.gain.value = 0.4;
-            const g3 = ctx.createGain(); g3.gain.value = 0.2;
-            const g4 = ctx.createGain(); g4.gain.value = 0.1;
+            const g2 = ctx.createGain(); g2.gain.value = 0.6; // Boosted
+            const g3 = ctx.createGain(); g3.gain.value = 0.4; // Boosted
+            const g4 = ctx.createGain(); g4.gain.value = 0.3; // Boosted
             
             const masterGainNode = ctx.createGain(); 
             masterGainNode.gain.value = 0; 
 
-            // Softer Filters
             const bp = ctx.createBiquadFilter();
             bp.type = "bandpass";
-            bp.Q.value = 3; 
+            bp.Q.value = 4; // Slightly tighter Q
             bp.frequency.value = f * 2; 
 
+            // Higher cutoff for Lowpass to let crystal highs through
             const lp = ctx.createBiquadFilter();
             lp.type = "lowpass";
-            lp.frequency.value = 3500; 
+            lp.frequency.value = 5000; 
             lp.Q.value = 0.5;
 
             o1.connect(g1); g1.connect(masterGainNode); 
@@ -493,18 +478,19 @@
 
             const voiceObj = { 
                 baseFreq: baseFreq, oscList: [o1, o2, o3, o4], partialGains: [g1, g2, g3, g4],
-                baseGainValues: [1.0, 0.4, 0.2, 0.1], 
+                baseGainValues: [1.0, 0.6, 0.4, 0.3], 
                 type: 'HARM', gainNode: masterGainNode, stringX: stringX,
                 strIdx: strIdx,
                 bpNode: bp, 
                 kill: function() {
                     const t = ctx.currentTime;
-                    this.gainNode.gain.setTargetAtTime(0, t, 0.4); 
+                    // Long release for mysterious continuous feel
+                    this.gainNode.gain.setTargetAtTime(0, t, 1.0); 
                     setTimeout(() => {
                         o1.stop(); o2.stop(); o3.stop(); o4.stop();
                         const idx = activeVoices.indexOf(this);
                         if(idx > -1) activeVoices.splice(idx, 1);
-                    }, 500);
+                    }, 2000);
                 }
             };
             activeVoices.push(voiceObj);
@@ -561,6 +547,9 @@
             const isGhostMode = (activeStringIndices.size === 0);
             const speed = Math.abs(velocity);
             
+            // --- UPDATED LOGIC FOR EASIER TRIGGERING ---
+            const threshold = 0.05; // Much lower threshold for activation (was 0.5)
+
             for (let i=0; i<cfg.count; i++) {
                 const isActive = isGhostMode || activeStringIndices.has(i);
                 let voice = bowedVoices.get(i);
@@ -568,24 +557,23 @@
                 const visualX = (i * cfg.spacing) + (cfg.spacing/2);
                 const r = getHarmonicRatio(visualX);
 
-                if (isActive && speed > 0.5) {
+                if (isActive && speed > threshold) {
                     if (!voice) {
                         const baseFreq = isVector ? vectorCourses[i].freq : slateStrings[i];
                         voice = startBowedHarmonic(audioCtx, masterGain, baseFreq, r, visualX, i);
                         bowedVoices.set(i, voice);
                     }
                     
-                    const vol = Math.min(speed * 0.01 + 0.02, 0.5);
-                    voice.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.6);
+                    // Boost volume at low speeds: Curve is non-linear
+                    // Even small movement gives decent volume (Crystal sustain)
+                    const vol = Math.min(Math.pow(speed, 0.4) * 0.6, 0.85);
                     
-                    voice.partialGains.forEach((pg, idx) => {
-                        const base = voice.baseGainValues[idx];
-                        const jitter = (Math.random() - 0.5) * (base * 0.3); 
-                        pg.gain.setTargetAtTime(Math.max(0, base + jitter), audioCtx.currentTime, 0.2);
-                    });
-
+                    // Fast attack for responsiveness
+                    voice.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+                    
+                    // Add shimmer/mysterious detune
                     voice.oscList.forEach(osc => {
-                        const detune = (Math.random() - 0.5) * 1.5; 
+                        const detune = (Math.random() - 0.5) * 4.0; // More shimmering
                         osc.detune.value = detune;
                         osc.frequency.setTargetAtTime(voice.baseFreq * osc.freqMult * r, audioCtx.currentTime, 0.05);
                     });
@@ -594,12 +582,15 @@
                          voice.bpNode.frequency.setTargetAtTime(voice.baseFreq * r * 2, audioCtx.currentTime, 0.05);
                     }
 
-                    if (Math.random() > 0.85) {
-                        pulses.push({ x: visualX, life: 0.6, color: '#b19cd9', w: 2 });
+                    if (Math.random() > 0.92) {
+                        pulses.push({ x: visualX, life: 0.8, color: '#b19cd9', w: 2 });
                     }
 
                 } else {
-                    if (voice) voice.gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+                    if (voice) {
+                        // Very slow decay to keep it "Continuous" and "Mysterious"
+                        voice.gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.8);
+                    }
                 }
             }
         }
